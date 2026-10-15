@@ -44,6 +44,21 @@ const FINISHES: Record<string, Finish> = {
     trim: hexToLinear("#3c3a38"),
     door: hexToLinear("#3b2a20"),
   },
+  // A hostel room: terrazzo floor, and walls that were last painted some years ago.
+  hostel4: {
+    wall: hexToLinear("#d9d3b4"),
+    floorA: hexToLinear("#8f948e"),
+    floorB: hexToLinear("#878c86"),
+    trim: hexToLinear("#3d5a46"),
+    door: hexToLinear("#4a5d49"),
+  },
+  hostel2: {
+    wall: hexToLinear("#e3ddc4"),
+    floorA: hexToLinear("#a39f92"),
+    floorB: hexToLinear("#9a968a"),
+    trim: hexToLinear("#3d5a46"),
+    door: hexToLinear("#4a5d49"),
+  },
 };
 
 const OUTSIDE = hexToLinear("#9fb58a");
@@ -186,6 +201,26 @@ export function buildRoom(plan: HomePlan, floor: number): MeshData {
     ); // handle
   }
 
+  // Doors that come with the room, in the left wall: the way to the bathroom down the corridor.
+  if (floor === 0) {
+    for (const fixture of plan.fixtures ?? []) {
+      if (fixture.kind !== "door") continue;
+      const centre = (fixture.z + 0.5) * cell;
+      builder.box(0.02, centre, 0.02, 0.49, 0, 2.14, finish.trim);
+      builder.box(0.04, centre, 0.025, 0.41, 0, 2.06, finish.door);
+      builder.box(
+        0.07,
+        centre + 0.27,
+        0.02,
+        0.03,
+        0.95,
+        1.05,
+        hexToLinear("#c9b26a")
+      ); // handle
+      builder.box(0.03, centre, 0.02, 0.3, 2.2, 2.42, hexToLinear("#f1efe9")); // the sign over it
+    }
+  }
+
   // Windows go wherever the door and the stairs are not.
   const backSpots =
     floor === 0 ? [width * 0.2, width * 0.82] : [width * 0.28, width * 0.72];
@@ -321,6 +356,8 @@ const PAINT: Record<string, RGB> = {
   leafLight: hexToLinear("#5a9a45"),
   rug: hexToLinear("#8a3a2f"),
   rugLight: hexToLinear("#d9b46a"),
+  tile: hexToLinear("#bcd6e0"),
+  glass: hexToLinear("#9cc4dc"),
 };
 
 /**
@@ -349,6 +386,24 @@ const SHAPES: Record<string, Part[]> = {
     [0, 0, 0.47, 0.97, 0, 0.2, "cream"],
     [0, -0.72, 0.3, 0.16, 0.2, 0.28, "white"],
     [0, 0.3, 0.47, 0.6, 0.2, 0.22, "blue"],
+  ],
+  // Two beds, one above the other, in a steel frame with a ladder at the foot.
+  bunk: [
+    ...legs(0.46, 0.96, 0.025, 1.75, "metal"),
+    [0, 0, 0.47, 0.97, 0.3, 0.36, "metal"],
+    [0, 0, 0.44, 0.94, 0.36, 0.5, "cream"],
+    [0, -0.7, 0.3, 0.16, 0.5, 0.58, "white"],
+    [0, 0.3, 0.44, 0.6, 0.5, 0.52, "blue"],
+    [0, 0, 0.47, 0.97, 1.25, 1.31, "metal"],
+    [0, 0, 0.44, 0.94, 1.31, 1.45, "cream"],
+    [0, -0.7, 0.3, 0.16, 1.45, 1.53, "white"],
+    [0, 0.3, 0.44, 0.6, 1.45, 1.47, "wine"],
+    [0, -0.96, 0.47, 0.02, 1.45, 1.75, "metal"],
+    [0.46, 0.2, 0.02, 0.6, 1.6, 1.64, "metal"],
+    [0.3, 0.98, 0.02, 0.02, 0, 1.31, "metal"],
+    [0.1, 0.98, 0.02, 0.02, 0, 1.31, "metal"],
+    [0.2, 0.98, 0.12, 0.02, 0.45, 0.48, "metal"],
+    [0.2, 0.98, 0.12, 0.02, 0.85, 0.88, "metal"],
   ],
   bed: [
     [0, 0, 0.74, 0.99, 0, 0.28, "wood"],
@@ -422,6 +477,18 @@ const SHAPES: Record<string, Part[]> = {
     [0.15, 0, 0.2, 0.15, 0.94, 1.15, "blue"],
     [-0.1, 0, 0.25, 0.15, 1.39, 1.58, "gold"],
   ],
+  // A reading desk: books, a lamp, and a drawer that sticks.
+  desk: [
+    [0, 0, 0.48, 0.23, 0.7, 0.75, "wood"],
+    ...legs(0.44, 0.19, 0.025, 0.7, "darkwood"),
+    [0.25, 0, 0.2, 0.2, 0.45, 0.7, "darkwood"],
+    [-0.24, -0.06, 0.13, 0.1, 0.75, 0.79, "wine"],
+    [-0.22, -0.06, 0.12, 0.09, 0.79, 0.82, "blue"],
+    [-0.24, -0.05, 0.1, 0.08, 0.82, 0.845, "gold"],
+    [0.32, -0.12, 0.05, 0.05, 0.75, 0.77, "black"],
+    [0.32, -0.12, 0.012, 0.012, 0.77, 1.05, "metal"],
+    [0.28, -0.08, 0.07, 0.06, 1.03, 1.1, "black"],
+  ],
   rug: [
     [0, 0, 0.98, 0.73, 0, 0.02, "rug"],
     [0, 0, 0.8, 0.55, 0.02, 0.026, "rugLight"],
@@ -459,6 +526,24 @@ const SHAPES: Record<string, Part[]> = {
     [0, 0, 0.15, 0.15, 0, 0.3, "clay"],
     [0, 0, 0.2, 0.2, 0.3, 0.75, "leaf"],
     [0.05, -0.03, 0.12, 0.12, 0.75, 1.05, "leafLight"],
+  ],
+  // A tiled corner with a glass side, a shower head on its pipe, and the bucket every bathroom has.
+  shower: [
+    [0, 0, 0.48, 0.48, 0, 0.06, "white"],
+    [0, -0.46, 0.48, 0.02, 0.06, 2.0, "tile"],
+    [-0.46, 0, 0.02, 0.48, 0.06, 1.9, "glass"],
+    [0.3, -0.42, 0.015, 0.015, 0.06, 1.95, "metal"],
+    [0.3, -0.32, 0.07, 0.1, 1.9, 1.95, "metal"],
+    [-0.18, 0.16, 0.13, 0.13, 0.06, 0.34, "blue"],
+    [-0.18, 0.16, 0.11, 0.11, 0.34, 0.345, "glass"],
+  ],
+  // Cistern at the back, bowl in front of it, the lid standing up.
+  toilet: [
+    [0, -0.36, 0.2, 0.1, 0.4, 0.82, "white"],
+    [0, 0.05, 0.16, 0.24, 0, 0.38, "white"],
+    [0, 0.07, 0.19, 0.27, 0.38, 0.42, "cream"],
+    [0, -0.24, 0.18, 0.02, 0.42, 0.78, "white"],
+    [0, -0.36, 0.04, 0.04, 0.82, 0.84, "metal"],
   ],
 };
 

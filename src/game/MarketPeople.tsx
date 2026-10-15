@@ -4,7 +4,7 @@ import { Html } from "@react-three/drei";
 import type { Group } from "three";
 import { Character } from "./Character";
 import type { Collider } from "./collision";
-import { playerDrag, playerFocus } from "./focus";
+import { playerDrag, playerFocus, playerStreet } from "./focus";
 import {
   dragFactor,
   keepPeople,
@@ -13,12 +13,14 @@ import {
   type Person,
   type Seller,
 } from "./npcs";
+import { drawnInFull } from "./streetLife";
 
-const MAX_SHOWN = 9; // a person costs far more to draw than a stall
+const MAX_SHOWN = 9; // full characters at once: each costs far more to draw than a stall
 const SHOW_RANGE = 38; // metres
 const RECHECK = 0.4; // seconds between working out who is in view
 const MAX_STEP = 0.1; // cap a frozen tab's catch-up
 const BUBBLE_HEIGHT = 2.15;
+const OUT_OF_REACH = 1e6; // where the market thinks a player up on a footbridge is: nowhere near
 
 type Props = {
   crowd: Crowd;
@@ -73,27 +75,45 @@ function PersonView({ person, crowd }: { person: Person; crowd: Crowd }) {
   );
 }
 
+/** Tell the simple crowd who is being drawn as a full character, so nobody is drawn twice. */
+function markDrawnInFull(people: Person[]): void {
+  drawnInFull.ids = new Set(people.map((person) => person.id));
+  drawnInFull.version += 1;
+}
+
 /**
- * Runs the market and draws the people nearest the player.
+ * Runs the market and draws the people nearest the player as full, animated characters.
+ * Everyone else in the market is drawn simply, by CrowdAndTraffic.
  * The behaviour lives in npcs.ts; this only steps it once a frame and shows the result.
  */
 export function MarketPeople({ crowd, collider, onHeld, onNearSeller }: Props) {
   const [shown, setShown] = useState<Person[]>([]);
+  const shownNow = useRef<Person[]>([]);
   const sinceCheck = useRef(RECHECK);
   const held = useRef(0);
   const near = useRef<Seller | null>(null);
 
-  // Leaving the market must never leave the player slowed down.
+  // Leaving the market must never leave the player slowed down, or anyone missing from the crowd.
   useEffect(
     () => () => {
       playerDrag.factor = 1;
+      shownNow.current = [];
+      markDrawnInFull([]);
     },
     [crowd]
   );
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, MAX_STEP);
-    stepCrowd(crowd, dt, playerFocus.x, playerFocus.z, collider);
+    // Nobody can grab a sleeve, or sell a tomato, to someone crossing a bridge overhead.
+    const away = playerStreet.up;
+    stepCrowd(
+      crowd,
+      dt,
+      away ? OUT_OF_REACH : playerFocus.x,
+      away ? OUT_OF_REACH : playerFocus.z,
+      collider
+    );
     playerDrag.factor = dragFactor(crowd);
 
     if (crowd.holding !== held.current) {
@@ -108,20 +128,23 @@ export function MarketPeople({ crowd, collider, onHeld, onNearSeller }: Props) {
     sinceCheck.current += dt;
     if (sinceCheck.current >= RECHECK) {
       sinceCheck.current = 0;
-      setShown((current) => {
-        const next = keepPeople(
-          crowd,
-          current,
-          playerFocus.x,
-          playerFocus.z,
-          MAX_SHOWN,
-          SHOW_RANGE
-        );
-        const same =
-          current.length === next.length &&
-          next.every((person) => current.includes(person));
-        return same ? current : next;
-      });
+      const current = shownNow.current;
+      const next = keepPeople(
+        crowd,
+        current,
+        playerFocus.x,
+        playerFocus.z,
+        MAX_SHOWN,
+        SHOW_RANGE
+      );
+      const same =
+        current.length === next.length &&
+        next.every((person) => current.includes(person));
+      if (!same) {
+        shownNow.current = next;
+        markDrawnInFull(next);
+        setShown(next);
+      }
     }
   });
 

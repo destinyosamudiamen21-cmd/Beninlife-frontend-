@@ -1,7 +1,12 @@
 // The arithmetic of a house: where cells are in metres, what the stairs do, and what
 // a player bumps into indoors. No 3D imports here, so all of it can be tested alone.
 
-import type { FurnitureOption, HomePlan, PlacedItem } from "../api/home";
+import type {
+  Fixture,
+  FurnitureOption,
+  HomePlan,
+  PlacedItem,
+} from "../api/home";
 import {
   EDGE_MARGIN,
   PLAYER_RADIUS,
@@ -35,6 +40,17 @@ export function itemRect(
     cz: (item.z + d / 2) * plan.cell,
     halfX: (w * plan.cell) / 2,
     halfZ: (d * plan.cell) / 2,
+  };
+}
+
+/** Where a fixture stands, in metres: the middle of its cell. A person is as wide as a person. */
+export function fixtureRect(plan: HomePlan, fixture: Fixture): Rect {
+  const half = fixture.kind === "person" ? 0.28 : plan.cell / 2;
+  return {
+    cx: (fixture.x + 0.5) * plan.cell,
+    cz: (fixture.z + 0.5) * plan.cell,
+    halfX: half,
+    halfZ: half,
   };
 }
 
@@ -136,6 +152,13 @@ export function homeCollider(
   }
   const stairs = stairsBlock(plan, floor);
   if (stairs) solids.push(solid(stairs));
+  // A roommate is in the way like anybody else. A door in the wall is not.
+  if (floor === 0) {
+    for (const fixture of plan.fixtures ?? []) {
+      if (fixture.kind === "person")
+        solids.push(solid(fixtureRect(plan, fixture)));
+    }
+  }
 
   // The collider keeps players EDGE_MARGIN inside its bounds. Setting the bounds this far
   // outside the walls makes that land exactly a body's width from each wall.

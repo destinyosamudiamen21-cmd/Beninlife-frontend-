@@ -33,6 +33,7 @@ import {
 } from "./districtTextures";
 import { playerFocus } from "./focus";
 import { cameraInput } from "./input";
+import { buildStreetProps } from "./streetProps";
 
 const HAZE = "#c9d9e6"; // distant things fade into this
 const HAZE_START = 180;
@@ -251,6 +252,7 @@ function GateName({ gate }: { gate: Gate }) {
 export function District({ data }: { data: DistrictData }) {
   const assets = useMemo(() => {
     const meshes = buildDistrictMeshes(data);
+    const street = buildStreetProps(data);
     const grass = toTexture(drawGrass(), true);
     grass.repeat.set(GROUND_SIZE / GRASS_TILE, GROUND_SIZE / GRASS_TILE);
     return {
@@ -258,6 +260,10 @@ export function District({ data }: { data: DistrictData }) {
       roofs: toGeometry(meshes.roofs),
       structures: toGeometry(meshes.structures),
       layers: meshes.layers.map(toGeometry),
+      props: toGeometry(street.props),
+      pads: toGeometry(street.pads),
+      hasProps: street.props.indices.length > 0,
+      hasPads: street.pads.indices.length > 0,
       shadeTree: toGeometry(buildShadeTree()),
       palmTree: toGeometry(buildPalmTree()),
       facade: toTexture(drawFacade(), true),
@@ -272,6 +278,8 @@ export function District({ data }: { data: DistrictData }) {
         assets.walls,
         assets.roofs,
         assets.structures,
+        assets.props,
+        assets.pads,
         assets.shadeTree,
         assets.palmTree,
         ...assets.layers,
@@ -296,6 +304,18 @@ export function District({ data }: { data: DistrictData }) {
         <planeGeometry args={[GROUND_SIZE, GROUND_SIZE]} />
         <meshLambertMaterial map={assets.grass} />
       </mesh>
+
+      {/* The ground of markets and parks goes down first, under the yards and roads. */}
+      {assets.hasPads && (
+        <mesh geometry={assets.pads} receiveShadow>
+          <meshLambertMaterial
+            vertexColors
+            polygonOffset
+            polygonOffsetFactor={-0.5}
+            polygonOffsetUnits={-2}
+          />
+        </mesh>
+      )}
 
       {/* Yards, roads and paint lie almost on the ground. Each layer is nudged towards the
           camera a little more than the one below, so they never flicker through each other. */}
@@ -324,6 +344,13 @@ export function District({ data }: { data: DistrictData }) {
       <mesh geometry={assets.structures} castShadow receiveShadow>
         <meshLambertMaterial vertexColors />
       </mesh>
+
+      {/* Market stalls, electricity poles and wires, parked buses and kekes. */}
+      {assets.hasProps && (
+        <mesh geometry={assets.props} castShadow receiveShadow>
+          <meshLambertMaterial vertexColors />
+        </mesh>
+      )}
 
       <Trees trees={data.trees} kind={0} geometry={assets.shadeTree} />
       <Trees trees={data.trees} kind={1} geometry={assets.palmTree} />

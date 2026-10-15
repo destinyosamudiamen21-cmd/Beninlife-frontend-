@@ -25,6 +25,23 @@ export type FurnitureOption = {
   group: string;
 };
 
+/**
+ * Something that comes with a room and stays where it is: a roommate, or the door to the
+ * bathroom down the corridor. What it can be used for is decided by the server, under its id.
+ */
+export type Fixture = {
+  id: string;
+  name: string;
+  kind: "person" | "door";
+  /** The cell it stands in, downstairs. */
+  x: number;
+  z: number;
+  /** Quarter turns, 0 to 3. At 0 a person faces the front of the room. */
+  rot: number;
+  /** Which of the stock looks a person wears. */
+  look: number;
+};
+
 export type HomePlan = {
   kind: string;
   name: string;
@@ -35,6 +52,7 @@ export type HomePlan = {
   stairs: { x: number; z: number; w: number; d: number } | null;
   /** On the back wall. */
   door: { x: number; w: number };
+  fixtures: Fixture[];
 };
 
 export type Home = {

@@ -1,3 +1,4 @@
+import { authHeaders } from "./auth";
 import { API_URL } from "./config";
 
 export type Look = {
@@ -24,16 +25,12 @@ export type LookState = { look: Look; customised: boolean };
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, init);
+    res = await fetch(`${API_URL}${path}`, { ...init, headers: { ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) } });
   } catch {
     throw new Error("Can't reach the game server. Check your connection.");
   }
   if (!res.ok) {
-    throw new Error(
-      res.status === 422
-        ? "That look isn't available."
-        : "Something went wrong. Try again."
-    );
+    throw new Error(res.status === 422 ? "That look isn't available." : "Something went wrong. Try again.");
   }
   return (await res.json()) as T;
 }

@@ -1,15 +1,18 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { bearing, spread, turned, twistFilter, type Point } from "./gestures";
 import {
   cameraInput,
   creatorInput,
   releaseTouch,
   setZoom,
   touchInput,
+  turnCamera,
 } from "./input";
 
 const STICK_RADIUS = 60; // pixels of drag for full speed
@@ -17,26 +20,38 @@ const SPRINT_AT = 0.9; // fraction of the radius where walking becomes sprinting
 const SPIN_PER_PIXEL = 0.012; // radians of character turn per pixel, in the creator
 const WHEEL_ZOOM = 0.0015; // mouse wheel / two-finger scroll
 const PINCH_WHEEL_ZOOM = 0.01; // trackpad pinch arrives as a ctrl+wheel event
+const TWIST_START = 0.12; // radians two fingers must turn before the camera follows: a pinch always wobbles a little
+const LOOK_PER_PIXEL = 0.006; // radians the camera swings per pixel of a right-button drag
 
-type Point = { x: number; y: number };
 type Stick = { origin: Point; knob: Point };
-type Props = { mode: "play" | "spin" };
-
-function gap(a: Point, b: Point): number {
-  return Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1);
-}
+type Props = {
+  mode: "play" | "spin";
+  /** False where the camera cannot be swung round: indoors, where a room has only three walls. */
+  turn?: boolean;
+};
 
 function localPoint(event: ReactPointerEvent<HTMLDivElement>): Point {
   const rect = event.currentTarget.getBoundingClientRect();
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
-export function TouchControls({ mode }: Props) {
+/**
+ * The invisible layer over the game that fingers and the mouse act on.
+ *
+ * - One finger (or the left button) drags a stick: the player walks that way.
+ * - Two fingers pinch to zoom and twist to swing the camera round the player.
+ * - The right mouse button drags the camera round; the wheel zooms.
+ */
+export function TouchControls({ mode, turn = true }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, Point>());
   const moveId = useRef<number | null>(null);
+  const lookId = useRef<number | null>(null); // the mouse, while its right button drags the camera
   const origin = useRef<Point>({ x: 0, y: 0 });
-  const pinch = useRef<{ gap: number; zoom: number } | null>(null);
+  const pinch = useRef<{ gap: number; zoom: number; bearing: number } | null>(
+    null
+  );
+  const twist = useMemo(() => twistFilter(TWIST_START), []);
   const [stick, setStick] = useState<Stick | null>(null);
 
   useEffect(() => releaseTouch, []);
@@ -48,11 +63,14 @@ export function TouchControls({ mode }: Props) {
     if (!layer) return undefined;
 
     const blockGesture = (event: TouchEvent) => event.preventDefault();
+    const blockMenu = (event: MouseEvent) => event.preventDefault(); // the right button is for the camera
     layer.addEventListener("touchstart", blockGesture, { passive: false });
     layer.addEventListener("touchmove", blockGesture, { passive: false });
+    layer.addEventListener("contextmenu", blockMenu);
     return () => {
       layer.removeEventListener("touchstart", blockGesture);
       layer.removeEventListener("touchmove", blockGesture);
+      layer.removeEventListener("contextmenu", blockMenu);
     };
   }, []);
 
@@ -78,8 +96,16 @@ export function TouchControls({ mode }: Props) {
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
     const point = localPoint(event);
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      // The right button swings the camera. It never walks the player or joins a pinch.
+      if (event.button === 2 && mode === "play" && turn) {
+        lookId.current = event.pointerId;
+        origin.current = point;
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
+      return;
+    }
     pointers.current.set(event.pointerId, point);
     event.currentTarget.setPointerCapture(event.pointerId);
 
@@ -94,19 +120,35 @@ export function TouchControls({ mode }: Props) {
     stopMoving();
     if (mode === "play" && pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
-      pinch.current = { gap: gap(a, b), zoom: cameraInput.zoom };
+      pinch.current = {
+        gap: spread(a, b),
+        zoom: cameraInput.zoom,
+        bearing: bearing(a, b),
+      };
+      twist.reset();
     }
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const point = localPoint(event);
+    if (event.pointerId === lookId.current) {
+      // Dragging right pulls the near side of the world to the right, as if it were held.
+      turnCamera(-(point.x - origin.current.x) * LOOK_PER_PIXEL);
+      origin.current = point;
+      return;
+    }
     const previous = pointers.current.get(event.pointerId);
     if (!previous) return;
-    const point = localPoint(event);
     pointers.current.set(event.pointerId, point);
 
     if (pinch.current && pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()];
-      setZoom(pinch.current.zoom * (pinch.current.gap / gap(a, b)));
+      setZoom(pinch.current.zoom * (pinch.current.gap / spread(a, b)));
+      // Twisting the two fingers turns the world with them.
+      const now = bearing(a, b);
+      const swing = twist.feed(turned(pinch.current.bearing, now));
+      pinch.current.bearing = now;
+      if (turn && swing !== 0) turnCamera(swing);
       return;
     }
     if (event.pointerId !== moveId.current) return;
@@ -134,8 +176,23 @@ export function TouchControls({ mode }: Props) {
   };
 
   const onPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerId === lookId.current) {
+      lookId.current = null;
+      return;
+    }
     pointers.current.delete(event.pointerId);
-    if (pointers.current.size < 2) pinch.current = null;
+    if (pointers.current.size < 2) {
+      pinch.current = null;
+    } else if (pinch.current) {
+      // A third finger lifted: measure again from the two that are left, so nothing jumps.
+      const [a, b] = [...pointers.current.values()];
+      pinch.current = {
+        gap: spread(a, b),
+        zoom: cameraInput.zoom,
+        bearing: bearing(a, b),
+      };
+      twist.reset();
+    }
     if (event.pointerId === moveId.current || pointers.current.size === 0)
       stopMoving();
   };

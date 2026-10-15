@@ -34,7 +34,12 @@ export type Road = {
   m?: number;
   /** Height of each point, only for bridges and the stairs up to them. */
   y?: number[];
+  /** 1 when traffic runs one way only, in the order the points are listed. */
+  o?: number;
 };
+
+/** A path the crowd walks: its points, half its width, and 1 if it is in a market. */
+export type Walk = { p: number[]; h: number; m: number };
 
 export type Area = { t: string; p: number[] };
 
@@ -47,6 +52,18 @@ export type PlaceLabel = {
   /** Height of the sign above the ground. */
   y: number;
   k: "landmark" | "place" | "road";
+};
+
+/** A door a player can go through. What is behind it is decided by its id. */
+export type Door = {
+  id: string;
+  /** The name over the door. */
+  text: string;
+  /** Where the player stands, just outside. */
+  x: number;
+  z: number;
+  /** The way the door faces, as an angle on the ground: out of the building. */
+  facing: number;
 };
 
 export type DistrictData = {
@@ -75,6 +92,10 @@ export type DistrictData = {
   wires?: number[][];
   /** Parked vehicles: x, z, angle, kind (0 bus, 1 keke, 2 car), repeated. */
   vehicles?: number[];
+  /** Where the crowd walks. */
+  walks?: Walk[];
+  /** Doors into places the game has an inside for. */
+  doors?: Door[];
 };
 
 const cache = new Map<string, Promise<DistrictData>>();
