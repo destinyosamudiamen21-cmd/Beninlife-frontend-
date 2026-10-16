@@ -4,6 +4,8 @@ import { Html } from "@react-three/drei";
 import { BufferAttribute, BufferGeometry, type Group } from "three";
 import type { Look } from "../api/appearance";
 import type { Home, Room } from "../api/home";
+import { Car } from "./Car";
+import { carParkSpots } from "./carPhysics";
 import { Character } from "./Character";
 import type { MeshData } from "./districtGeometry";
 import { cameraView, playerFocus } from "./focus";
@@ -79,10 +81,12 @@ type Props = {
   onNear: (thing: Near | null) => void;
   /** Set while building: walls down, the grid, and what is being put down or picked out. */
   build?: BuildView | null;
+  /** The player's cars ("model|colour|plate"), parked beside the house. */
+  cars?: string[];
 };
 
 /** A player's house: one floor of it, with its furniture, whoever lives there too, and any room being built. */
-export function HomeScene({ home, floor, onStairs, usable, onNear, build = null }: Props) {
+export function HomeScene({ home, floor, onStairs, usable, onNear, build = null, cars = [] }: Props) {
   const { plan, items, catalogue } = home;
   const building = build !== null;
   const cell = plan.cell;
@@ -258,6 +262,26 @@ export function HomeScene({ home, floor, onStairs, usable, onNear, build = null 
           </group>
         );
       })}
+
+      {/* The car park: paving to the left of the house, and the player's cars on it. */}
+      {floor === 0 && plan.buildable && cars.length > 0 && (() => {
+        const spots = carParkSpots(plan.lot, cell, cars.length, home.rooms);
+        if (spots.length === 0) return null;
+        const last = spots[spots.length - 1];
+        return (
+          <>
+            <mesh rotation-x={-Math.PI / 2} position={[last.x, 0.012, (spots[0].z + last.z) / 2]} receiveShadow>
+              <planeGeometry args={[6.2, last.z - spots[0].z + 3.4]} />
+              <meshLambertMaterial color="#8d8a84" />
+            </mesh>
+            {spots.map((spot, i) => (
+              <group key={cars[i]} position={[spot.x, 0, spot.z]} rotation-y={spot.rot}>
+                <Car look={cars[i]} shadow={false} />
+              </group>
+            ))}
+          </>
+        );
+      })()}
 
       {/* A bricklayer at every room going up, looking at it, with a sign of how far along it is. */}
       {sites.map((room) => (

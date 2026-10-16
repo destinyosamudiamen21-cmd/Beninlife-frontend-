@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { authToken } from "../api/auth";
 import { WS_URL } from "../api/config";
-import type { NetPlayer, RosterEntry, WorldEvent } from "./types";
+import type { NetPlayer, ParkedCar, RosterEntry, WorldEvent } from "./types";
 
 const MAX_RETRY_MS = 10_000;
 const CLOSE_REPLACED = 4001;
@@ -17,7 +17,7 @@ export type Place = "street" | "home" | "private" | `venue:${string}`;
 
 // The server says which kind of place each list is about, in the same words.
 type ServerMessage =
-  | { type: "roster"; place?: string; players: RosterEntry[] }
+  | { type: "roster"; place?: string; players: RosterEntry[]; cars?: ParkedCar[] }
   | { type: "snapshot"; place?: string; players: NetPlayer[] }
   | WorldEvent;
 
@@ -34,6 +34,7 @@ export function useWorldSocket(playerId: string, onEvent?: (event: WorldEvent) =
   const placeRef = useRef<Place>("street");
   const quietUntil = useRef(0); // the server's word on where we stand is ignored until then
   const [remotes, setRemotes] = useState<RosterEntry[]>([]);
+  const [parked, setParked] = useState<ParkedCar[]>([]);   // the cars standing on this street, ours too
   const [connected, setConnected] = useState(false);
 
   // Kept in a ref so the socket always calls the newest version of it without reconnecting.
@@ -62,6 +63,7 @@ export function useWorldSocket(playerId: string, onEvent?: (event: WorldEvent) =
             .filter((p) => p.id !== playerId)
             .sort((a, b) => a.id.localeCompare(b.id)),
         );
+        setParked(msg.cars ?? []);
         return;
       }
 
@@ -154,6 +156,7 @@ export function useWorldSocket(playerId: string, onEvent?: (event: WorldEvent) =
       // The people who were around are not in the new place. Forget where they were, or
       // they would be drawn there for the moment before the server's next word arrives.
       playersRef.current = new Map();
+      if (place !== "street") setParked([]);
       send({ type: "place", place });
     },
     [send],
@@ -172,5 +175,5 @@ export function useWorldSocket(playerId: string, onEvent?: (event: WorldEvent) =
     return latest;
   }, []);
 
-  return { playersRef, remotes, connected, sendMove, sendPlace, takeServerPosition, say, signal };
+  return { playersRef, remotes, parked, connected, sendMove, sendPlace, takeServerPosition, say, signal };
 }

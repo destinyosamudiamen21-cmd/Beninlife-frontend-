@@ -9,6 +9,7 @@ import {
   type LookOptions,
 } from "../api/appearance";
 import { enterClub, fetchClub, inviteToBooth, rentBooth, type Club } from "../api/club";
+import { bringCar, carLook, fetchCars, getIn, getOut, sendCarHome, type Cars, type OwnedCar } from "../api/cars";
 import { acceptCrew, declineCrew, fetchCrew, leaveCrew, type Crew } from "../api/crew";
 import { fetchHome, type Home, type HomeChange } from "../api/home";
 import type { Player } from "../api/players";
@@ -27,6 +28,10 @@ import { CrewBar } from "./CrewBar";
 import { CrowdAndTraffic } from "./CrowdAndTraffic";
 import { BuildCamera } from "./BuildCamera";
 import { BuildPanel } from "./BuildPanel";
+import { ParkedCars } from "./Car";
+import { CarKeysPanel, DealerPanel, DriveHud } from "./CarPanels";
+import { carBox, carParkSpots, statsFor, touchesBox, withCars, type Box } from "./carPhysics";
+import { carParts, readCarLook } from "./carShapes";
 import { District } from "./District";
 import { ArenaHud } from "./FightPanel";
 import { Guide } from "./Guide";
@@ -34,7 +39,7 @@ import { HomeScene } from "./HomeScene";
 import { EMPTY_VIEW, type BuildView } from "./homeBuild";
 import { isDone, serverNow, syncClock } from "./homeRooms";
 import { LifeActions, LifeHud } from "./LifePanel";
-import { LocalPlayer } from "./LocalPlayer";
+import { LocalPlayer, type Driving } from "./LocalPlayer";
 import { MapPanel } from "./MapPanel";
 import { MarketPeople } from "./MarketPeople";
 import { PoliceCheckpoints } from "./PoliceCheckpoint";
@@ -250,7 +255,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
     [flash, hear, player.id, refreshCrew, shout, voice],
   );
 
-  const { playersRef, remotes, connected, sendMove, sendPlace, takeServerPosition, say, signal } = useWorldSocket(player.id, onEvent);
+  const { playersRef, remotes, parked, connected, sendMove, sendPlace, takeServerPosition, say, signal } = useWorldSocket(player.id, onEvent);
   useEffect(() => {
     signalOut.current = signal;
   }, [signal]);
@@ -316,6 +321,15 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
   const [storyOpen2, setStoryOpen2] = useState<Special | null>(null);
   const [scare, setScare] = useState<{ scare: Scare; key: number } | null>(null);
   const [policeStop, setPoliceStop] = useState<PoliceStop | null>(null);
+  // Cars: what the player owns, the keys, the dealership's sheet, and the trip at the wheel.
+  const [cars, setCars] = useState<Cars | null>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const [dealerCar, setDealerCar] = useState<string | null>(null);
+  const [showColours, setShowColours] = useState<Record<string, string>>({});
+  const [driving, setDriving] = useState<Driving | null>(null);
+  const [carBusy, setCarBusy] = useState(false);
+  const [nearCar, setNearCar] = useState(false);
+  const tripCount = useRef(0);
   const stopping = useRef(false);
   const haunt = useMemo(() => new HauntSound(), []);
 
@@ -332,11 +346,23 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
   const streetCollider = useMemo(() => (district ? buildCollider(district) : null), [district]);
   // Indoors: the walls, the stairs and the furniture on the floor being shown.
   const homeFloor = scene.kind === "home" ? scene.floor : 0;
+  // At home the best cars get the car park's spaces.
+  const homeCars = useMemo(() => [...(cars?.cars ?? [])].sort((a, b) => b.paid - a.paid).map(carLook), [cars]);
   const indoorCollider = useMemo(
-    () => (home ? homeCollider(home.plan, homeFloor, home.items, home.catalogue, home.rooms, serverNow()) : null),
+    () => {
+      if (!home) return null;
+      const base = homeCollider(home.plan, homeFloor, home.items, home.catalogue, home.rooms, serverNow());
+      if (homeFloor !== 0 || !home.plan.buildable || homeCars.length === 0) return base;
+      // The cars in the car park are walked round.
+      const boxes = carParkSpots(home.plan.lot, home.plan.cell, homeCars.length, home.rooms).map((spot, i) => {
+        const shape = carParts(readCarLook(homeCars[i]).model);
+        return carBox(spot.x, spot.z, spot.rot, shape.length, shape.width);
+      });
+      return withCars(base, () => boxes);
+    },
     // `roomsDone` brings in a room the workers have just finished.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [home, homeFloor, roomsDone],
+    [home, homeFloor, roomsDone, homeCars],
   );
   // When the room being built will be finished, look again.
   useEffect(() => {
@@ -373,10 +399,24 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
     [district, touchScreen],
   );
   // On top of both goes the footbridge: once up on it, nothing on the street can touch the player.
+  // The cars standing on the street are solid too. Read through a ref, so cars coming and
+  // going do not rebuild the collider.
+  const parkedRef = useRef(parked);
+  parkedRef.current = parked;
+  const parkedBoxes = useCallback((): Box[] => parkedRef.current.map((car) => {
+    const shape = carParts(readCarLook(car.look).model);
+    return carBox(car.x, car.z, car.rot, shape.length, shape.width);
+  }), []);
+  // What a car being driven bumps into besides the street: the parked cars and the traffic.
+  const roadBoxes = useCallback((): Box[] => {
+    const boxes = parkedBoxes();
+    for (const vehicle of life?.vehicles ?? []) if (vehicle.active) boxes.push(vehicle);
+    return boxes;
+  }, [life, parkedBoxes]);
   const outdoorCollider = useMemo(() => {
     if (!district || !streetCollider) return null;
-    return withFootbridges(life ? trafficCollider(streetCollider, life) : streetCollider, district);
-  }, [district, streetCollider, life]);
+    return withFootbridges(withCars(life ? trafficCollider(streetCollider, life) : streetCollider, parkedBoxes), district);
+  }, [district, streetCollider, life, parkedBoxes]);
   const collider =
     scene.kind === "arena"
       ? GYM_COLLIDER
@@ -540,6 +580,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       setHome(loaded);
       setMoney(loaded.money);
       setScene({ kind: "home", floor: 0 });
+      void loadCars(); // for the car park
       appearAt(inside.x, inside.z);
       sendPlace("home");
       void loadLife(); // needs may have moved on while they were out
@@ -636,6 +677,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       setSpecial(null);
       setWardrobeOpen(false);
       setStoryOpen2(null);
+      setDealerCar(null);
     }
     homeLife.leave();
     setDecorating(false);
@@ -646,6 +688,154 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
   };
   useEffect(() => () => music.stop(), [music]);
   useEffect(() => () => haunt.stop(), [haunt]);
+
+  // ---- cars ------------------------------------------------------------------------------------
+  const myParked = parked.find((car) => car.id === player.id) ?? null;
+  const drivingCar = useRef<number | null>(null);
+
+  const loadCars = useCallback(async (): Promise<Cars | null> => {
+    try {
+      const loaded = await fetchCars(player.id);
+      setCars(loaded);
+      setMoney(loaded.money);
+      return loaded;
+    } catch {
+      return null;
+    }
+  }, [player.id]);
+
+  // Standing by their own car: the "Get in" button shows.
+  useEffect(() => {
+    if (!myParked || driving || scene.kind !== "street") {
+      setNearCar(false);
+      return;
+    }
+    // Within reach of its doors: its own half-length and a step or two. (The server allows 6 m.)
+    const check = () => setNearCar(Math.hypot(playerFocus.x - myParked.x, playerFocus.z - myParked.z) < 5);
+    check();
+    const timer = window.setInterval(check, 250);
+    return () => window.clearInterval(timer);
+  }, [myParked, driving, scene.kind]);
+
+  /**
+   * Somewhere beside the player with room for the car, pointing where it can drive off: the
+   * way the camera looks if the road is open that way, otherwise across it or back.
+   */
+  const spotForCar = (model: string): { x: number; z: number; rot: number } => {
+    const shape = carParts(model);
+    const yaw = cameraView.yaw;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // the way the camera looks
+    const rx = -fz, rz = fx;                           // and to the right of that
+    const px = playerFocus.x, pz = playerFocus.z;
+    const r = shape.width / 2, half = shape.wheelbase / 2;
+    const probe = { x: 0, z: 0 };
+    const others = roadBoxes();
+    // Can a car-wide circle get from (ax, az) to (bx, bz) without meeting anything?
+    const open = (ax: number, az: number, bx: number, bz: number) => {
+      streetCollider?.resolve(ax, az, bx, bz, probe, r);
+      return Math.hypot(probe.x - bx, probe.z - bz) < 0.05 && !others.some((box) => touchesBox(box, bx, bz, r));
+    };
+    const forward = Math.atan2(fx, fz);
+    let fallback: { x: number; z: number; rot: number } | null = null;
+    for (const [side, ahead] of [[3.4, 1.5], [-3.4, 1.5], [3.4, -2.5], [-3.4, -2.5], [0, 6.5], [0, -6.5], [5.8, 3], [-5.8, 3]]) {
+      const x = px + rx * side + fx * ahead, z = pz + rz * side + fz * ahead;
+      for (const heading of [forward, forward + Math.PI / 2, forward - Math.PI / 2, forward + Math.PI]) {
+        const hx = Math.sin(heading), hz = Math.cos(heading);
+        const front = { x: x + hx * half, z: z + hz * half }, back = { x: x - hx * half, z: z - hz * half };
+        // Room for the car: it could be slid there from where the player stands.
+        if (!open(px, pz, front.x, front.z) || !open(px, pz, back.x, back.z)) break;
+        fallback ??= { x, z, rot: heading };
+        // And a clear run of a few car lengths in front of it.
+        if (open(front.x, front.z, front.x + hx * 8, front.z + hz * 8)) return { x, z, rot: heading };
+      }
+    }
+    return fallback ?? { x: px + rx * 3.4, z: pz + rz * 3.4, rot: forward };
+  };
+
+  const bring = async (car: OwnedCar) => {
+    if (carBusy) return;
+    setCarBusy(true);
+    try {
+      const spot = spotForCar(car.model);
+      setCars(await bringCar(player.id, car.id, spot.x, spot.z, spot.rot));
+      setKeysOpen(false);
+      shout("Your driver has brought the car. Walk up to it and get in.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "The driver could not bring it.");
+    } finally {
+      setCarBusy(false);
+    }
+  };
+
+  const sendHome = async () => {
+    if (carBusy) return;
+    setCarBusy(true);
+    try {
+      setCars(await sendCarHome(player.id));
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "The driver could not take it home.");
+    } finally {
+      setCarBusy(false);
+    }
+  };
+
+  const getInCar = async () => {
+    if (carBusy || !myParked || !streetCollider) return;
+    setCarBusy(true);
+    try {
+      // Which car is standing there: the server says, in what it knows of the player's cars.
+      const known = (cars?.parked ? cars : null) ?? (await loadCars());
+      const carId = known?.parked?.car_id;
+      if (!carId) throw new Error("That car is not here. Ask your driver to bring it.");
+      const done = await getIn(player.id, carId);
+      const car = done.cars.find((entry) => entry.id === carId);
+      if (!car) throw new Error("That car is not yours.");
+      const model = done.catalogue.find((entry) => entry.id === car.model);
+      const shape = carParts(car.model);
+      setCars(done);
+      drivingCar.current = car.id;
+      setDriving({
+        key: ++tripCount.current,
+        look: carLook(car),
+        stats: statsFor(model?.zero_to_100 ?? 9, model?.top_kmh ?? 180, shape),
+        x: myParked.x,
+        z: myParked.z,
+        heading: myParked.rot,
+        ground: streetCollider,
+        boxes: roadBoxes,
+      });
+      setNearCar(false);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not get in.");
+    } finally {
+      setCarBusy(false);
+    }
+  };
+
+  const getOutOfCar = async () => {
+    if (!driving) return;
+    // Out at once on the screen; the server leaves the car where it is.
+    setDriving(null);
+    drivingCar.current = null;
+    try {
+      setCars(await getOut(player.id));
+    } catch {
+      // The server parks the car anyway the next time the player goes anywhere.
+    }
+  };
+
+  // A dropped connection while driving: the server left the car where it stopped. Get back in.
+  const wasConnected = useRef(connected);
+  useEffect(() => {
+    const back = connected && !wasConnected.current;
+    wasConnected.current = connected;
+    const carId = drivingCar.current;
+    if (!back || !driving || carId === null) return;
+    getIn(player.id, carId).catch(() => {
+      setDriving(null);
+      drivingCar.current = null;
+    });
+  }, [connected, driving, player.id]);
 
   /** Something in the haunted house: the picture on the screen and its sound. */
   const frighten = useCallback(
@@ -1023,7 +1213,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
   useEffect(() => () => voice.turnOff(), [voice]);
 
   const roomPanel = wardrobeOpen || storyOpen2 !== null || policeStop !== null;
-  const panelOpen = shop !== null || mapOpen || customising || storyOpen || ride !== null || phoneOpen || roomPanel;
+  const panelOpen = shop !== null || mapOpen || customising || storyOpen || ride !== null || phoneOpen || roomPanel || keysOpen || dealerCar !== null;
   // Stopped at a checkpoint: held where they stand until they are let go.
   const policeHold = useMemo(() => (policeStop ? holdAt(null, playerFocus.x, playerFocus.z) : null), [policeStop]);
   // On the bus the server already has the player at the next stop, so nothing is sent
@@ -1086,10 +1276,11 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
         {mapOpen && <CityMap districts={allDistricts} city={city} here={mapHere} picked={pickedPlace} onPick={setPickedPlace} />}
         {!mapOpen && scene.kind === "street" && district && <District data={district} />}
         {!mapOpen && scene.kind === "street" && district && <StreetExtras data={district} onNearDoor={setNearDoor} />}
+        {!mapOpen && scene.kind === "street" && <ParkedCars cars={parked} />}
         {!mapOpen && scene.kind === "street" && district && life && <CrowdAndTraffic key={district.id} life={life} crowd={crowd} />}
         {guiding && heading && <Guide key={`${heading.district}:${heading.name}`} x={heading.x} z={heading.z} onDistance={walked} />}
         {!mapOpen && scene.kind === "street" && district && (
-          <PoliceCheckpoints district={district.id} onReach={calledOver} paused={panelOpen || busy || tiedUp || held > 0} />
+          <PoliceCheckpoints district={district.id} onReach={calledOver} paused={panelOpen || busy || tiedUp || held > 0 || driving !== null} />
         )}
         {scene.kind === "home" && home && (
           <HomeScene
@@ -1099,6 +1290,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
             usable={homeLife.usable}
             onNear={homeLife.setNear}
             build={decorating ? buildView : null}
+            cars={homeCars}
           />
         )}
         {scene.kind === "home" && home && decorating && <BuildCamera lot={home.plan.lot} cell={home.plan.cell} />}
@@ -1113,7 +1305,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
         <Suspense fallback={null}>
           {scene.kind === "club" && <ClubScene playersRef={playersRef} onNear={homeLife.setNear} />}
           {venue && (
-            <VenueScene key={venue.id} layout={venue} playersRef={playersRef} onNear={homeLife.setNear} onSpecial={setSpecial} onScare={frighten} />
+            <VenueScene key={venue.id} layout={venue} playersRef={playersRef} onNear={homeLife.setNear} onSpecial={setSpecial} onScare={frighten} carColours={showColours} />
           )}
           {lookLoaded && collider && !mapOpen && (
             <LocalPlayer
@@ -1131,6 +1323,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
               spraying={homeLife.life?.doing?.pose === "spray"}
               orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)}
               frozen={decorating}
+              driving={scene.kind === "street" ? driving : null}
             />
           )}
           {shared &&
@@ -1160,9 +1353,10 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       <Loader />
 
       {/* The map takes fingers and the mouse itself, so the walking controls step aside for it. */}
-      {!mapOpen && !decorating && (
+      {!mapOpen && !decorating && !driving && (
         <TouchControls key={customising ? "spin" : "play"} mode={customising ? "spin" : "play"} turn={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)} />
       )}
+      {driving && scene.kind === "street" && !overlay && !panelOpen && <DriveHud onGetOut={() => void getOutOfCar()} busy={carBusy} />}
 
       {!photo && !mapOpen && (
         <div className="hud">
@@ -1189,7 +1383,12 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
                   Build
                 </button>
               )}
-              {!indoors && !tiedUp && (
+              {!indoors && !tiedUp && !driving && story?.done && (
+                <button type="button" className="hud-button" onClick={() => setKeysOpen(true)} disabled={busy}>
+                  Car
+                </button>
+              )}
+              {!indoors && !tiedUp && !driving && (
                 <>
                   {story?.done && !inHostel && (
                     <button type="button" className="hud-button" onClick={() => void goHome()} disabled={busy}>
@@ -1207,7 +1406,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
                   {unread > 0 && <span className="hud-dot">{unread}</span>}
                 </button>
               )}
-              {!indoors && !tiedUp && (
+              {!indoors && !tiedUp && !driving && (
                 <button type="button" className="hud-button" onClick={openCreator} disabled={!look || !options}>
                   Edit look
                 </button>
@@ -1229,7 +1428,16 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       {toast && scene.kind !== "club" && !photo && <div className="notice notice-loud">{toast}</div>}
       {/* The map's credit must always be readable: where the say bar is along the bottom, it sits above it. */}
       {district && !indoors && !mapOpen && (
-        <div className="map-credit" style={sayBar ? { bottom: "calc(60px + env(safe-area-inset-bottom))" } : undefined}>
+        <div
+          className="map-credit"
+          style={
+            driving
+              ? { bottom: "calc(112px + env(safe-area-inset-bottom))", left: "14px", right: "auto", transform: "none" }
+              : sayBar
+                ? { bottom: "calc(60px + env(safe-area-inset-bottom))" }
+                : undefined
+          }
+        >
           {district.attribution}
         </div>
       )}
@@ -1252,7 +1460,14 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
           </button>
         </div>
       )}
-      {!indoors && !panelOpen && !tiedUp && held === 0 && (nearSeller || doorHere) && !spotHere && (
+      {!indoors && !panelOpen && !tiedUp && !driving && nearCar && (
+        <div className="crowd-actions">
+          <button type="button" className="give-in" onClick={() => void getInCar()} disabled={carBusy}>
+            {carBusy ? "Opening…" : "Get in and drive"}
+          </button>
+        </div>
+      )}
+      {!indoors && !panelOpen && !tiedUp && !driving && !nearCar && held === 0 && (nearSeller || doorHere) && !spotHere && (
         <div className="crowd-actions">
           {doorHere && (
             <button type="button" className="give-in" onClick={() => void goThrough(doorHere)} disabled={busy}>
@@ -1280,10 +1495,17 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
             onClick={() => {
               if (special.kind === "shop") setShop({ shopId: special.shop, seller: special.name, fromTout: false });
               else if (special.kind === "wardrobe") setWardrobeOpen(true);
+              else if (special.kind === "car") setDealerCar(special.model);
               else setStoryOpen2(special);
             }}
           >
-            {special.kind === "shop" ? `Shop: ${special.name}` : special.kind === "wardrobe" ? "Browse the boutique" : `Hear the story: ${special.story.title}`}
+            {special.kind === "shop"
+              ? `Shop: ${special.name}`
+              : special.kind === "wardrobe"
+                ? "Browse the boutique"
+                : special.kind === "car"
+                  ? `See the ${special.name}`
+                  : `Hear the story: ${special.story.title}`}
           </button>
         </div>
       )}
@@ -1291,7 +1513,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       {scene.kind === "arena" && !customising && <ArenaHud arena={arena} money={money} />}
 
       {/* Needs and the player's own clock: always in view, except where they would cover a fight or a form. */}
-      {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && !decorating && <LifeHud life={homeLife.life} />}
+      {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && !decorating && !driving && <LifeHud life={homeLife.life} />}
 
       {/* Friends: an invite to answer, and who is rolling with this player. */}
       {!storyOpen && ride === null && (
@@ -1306,7 +1528,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       )}
 
       {/* Using things: furniture and roommates at home, the bar and the dance floor in the club, a buka or a shuttle on the street. */}
-      {scene.kind !== "arena" && !overlay && !decorating && !roomPanel && !(scene.kind === "street" && (panelOpen || held > 0)) && (
+      {scene.kind !== "arena" && !overlay && !decorating && !roomPanel && !driving && !(scene.kind === "street" && (panelOpen || held > 0)) && (
         <LifeActions
           homeLife={homeLife}
           noButton={scene.kind === "club"}
@@ -1365,7 +1587,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       )}
 
       {/* Wherever players share a place they can talk: typed for everyone near, and by voice for whoever is standing with them. */}
-      {sayBar && !decorating && (
+      {sayBar && !decorating && !driving && (
         <SayBar onSay={speak} lines={lines} voice={Voice.supported() ? voiceState : null} voiceWith={voiceWith} onVoice={() => void toggleVoice()} />
       )}
 
@@ -1423,6 +1645,34 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
         />
       )}
       {storyOpen2?.kind === "story" && <StoryPanel story={storyOpen2.story} onClose={() => setStoryOpen2(null)} />}
+      {dealerCar && (
+        <DealerPanel
+          playerId={player.id}
+          model={dealerCar}
+          colour={showColours[dealerCar] ?? VENUES.dealer?.cars?.find((car) => car.model === dealerCar)?.colour ?? "black"}
+          onColour={(model, colour) => setShowColours((now) => ({ ...now, [model]: colour }))}
+          onBought={(done) => {
+            setCars(done);
+            setMoney(done.money);
+            shout("Congratulations on your new car!");
+          }}
+          onClose={() => setDealerCar(null)}
+        />
+      )}
+      {keysOpen && (
+        <CarKeysPanel
+          playerId={player.id}
+          cars={cars}
+          busy={carBusy}
+          onBring={(car) => void bring(car)}
+          onSendHome={() => void sendHome()}
+          onCars={(loaded) => {
+            setCars(loaded);
+            setMoney(loaded.money);
+          }}
+          onClose={() => setKeysOpen(false)}
+        />
+      )}
       {policeStop && (
         <PolicePanel
           playerId={player.id}

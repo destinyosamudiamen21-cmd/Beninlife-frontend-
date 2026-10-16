@@ -43,10 +43,7 @@ let shiftHeld = false;
 
 function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.isContentEditable ||
-    ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
-  );
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
 function onKeyDown(event: KeyboardEvent): void {
@@ -110,4 +107,37 @@ export function readMove(): MoveInput {
 /** Q and E look round: 1 while the view should turn left, -1 right, 0 for neither or both. */
 export function readTurn(): number {
   return (held.has("KeyQ") ? 1 : 0) - (held.has("KeyE") ? 1 : 0);
+}
+
+// ---- driving -----------------------------------------------------------
+
+/** The on-screen pedals and steering. The touch controls write here while a finger is down. */
+export const pedalInput = { gas: 0, brake: 0, steer: 0, horn: false };
+
+export type PedalInput = { gas: number; brake: number; steer: number; horn: boolean };
+const pedals: PedalInput = { gas: 0, brake: 0, steer: 0, horn: false };
+
+/**
+ * The pedals and the wheel. W or the up arrow is the gas; S, the down arrow or the space
+ * bar is the brake (and reverse, held once stopped); A and D or the arrows steer; H is the
+ * horn. Keys win while any is down; otherwise the on-screen controls drive.
+ */
+export function readPedals(): PedalInput {
+  const gasKey = held.has("KeyW") || held.has("ArrowUp");
+  const brakeKey = held.has("KeyS") || held.has("ArrowDown") || held.has("Space");
+  const left = held.has("KeyA") || held.has("ArrowLeft");
+  const right = held.has("KeyD") || held.has("ArrowRight");
+  const keys = gasKey || brakeKey || left || right;
+  pedals.gas = keys ? (gasKey ? 1 : 0) : pedalInput.gas;
+  pedals.brake = keys ? (brakeKey ? 1 : 0) : pedalInput.brake;
+  pedals.steer = keys ? (left ? 1 : 0) - (right ? 1 : 0) : pedalInput.steer;
+  pedals.horn = held.has("KeyH") || pedalInput.horn;
+  return pedals;
+}
+
+export function releasePedals(): void {
+  pedalInput.gas = 0;
+  pedalInput.brake = 0;
+  pedalInput.steer = 0;
+  pedalInput.horn = false;
 }

@@ -1,13 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Vector3, type Group } from "three";
 import type { Look } from "../api/appearance";
 import { Overhead, SprayedNotes } from "./BodyExtras";
+import { Car, type CarMotion } from "./Car";
+import { doorSpot, drive, driveView, kmh, newCar, type Box, type CarState, type CarStats } from "./carPhysics";
+import { carSound } from "./carSound";
 import { Character } from "./Character";
 import type { Collider, Point } from "./collision";
 import { danceTurn, fightClock, moveNow, stepSpeed, type FightPose, type Hold } from "./fightMoves";
 import { cameraView, playerDrag, playerFocus, playerStreet } from "./focus";
-import { CAMERA_FOV, attachKeyboard, cameraInput, creatorInput, readMove, readTurn, turnCamera } from "./input";
+import { CAMERA_FOV, attachKeyboard, cameraInput, creatorInput, readMove, readPedals, readTurn, releasePedals, turnCamera } from "./input";
 import type { NetPlayer } from "./types";
 
 const WALK_SPEED = 2;            // m/s, a brisk walk for a 1.75 m person
@@ -38,6 +41,28 @@ const CREATOR_PANEL_WIDTH = 340; // must match .creator width in index.css
 const CREATOR_WIDE = { height: 1.3, distance: 3.8, lookHeight: 0.95 };
 const CREATOR_TALL = { height: 1.1, distance: 5.4, lookHeight: -0.3 };
 const VIEW_HEIGHT_PER_METRE = 2 * Math.tan((CAMERA_FOV * Math.PI) / 360);
+
+// At the wheel: the camera rides behind the car, a little higher and further back the
+// faster it goes, and swings round behind it when it turns, a moment late.
+const CHASE_BACK = 6.4;
+const CHASE_HEIGHT = 2.5;
+const CHASE_SWING = 3.2;          // how quickly the camera gets back behind the car
+const CHASE_AHEAD = 4;            // metres in front of the car the camera looks at
+const DRIVE_RECONCILE = 30;       // metres the server must disagree by before it wins (the car moves fast)
+
+/** The player is at the wheel of this car. A new `key` is a new trip. */
+export type Driving = {
+  key: number;
+  look: string;              // "model|colour|plate"
+  stats: CarStats;
+  x: number;
+  z: number;
+  heading: number;
+  /** The street: buildings, trees, poles. */
+  ground: Collider | null;
+  /** The other vehicles round it, read every step. */
+  boxes?: () => readonly Box[];
+};
 
 // Scratch vectors, reused every frame so the render loop allocates nothing.
 const cameraGoal = new Vector3();
@@ -73,6 +98,8 @@ type Props = {
   orbit?: boolean;
   /** True while the house is being built or arranged: the player stands still and the build camera has the view. */
   frozen?: boolean;
+  /** Set while the player is driving. */
+  driving?: Driving | null;
 };
 
 function shortestAngle(from: number, to: number): number {
@@ -82,6 +109,7 @@ function shortestAngle(from: number, to: number): number {
 
 export function LocalPlayer({
   start, sendMove, takeServerPosition, look, customising, collider, fight, hold, said = "", out = false, spraying = false, orbit = false, frozen = false,
+  driving = null,
 }: Props) {
   const bodyRef = useRef<Group>(null);
   const speedRef = useRef(0);
@@ -92,6 +120,49 @@ export function LocalPlayer({
   const size = useThree((state) => state.size);
 
   useEffect(() => attachKeyboard(), []);
+
+  // ---- the car, while driving ----
+  const carRef = useRef<CarState | null>(null);
+  const statsRef = useRef<CarStats | null>(null);
+  const motion = useMemo<CarMotion>(() => ({ spin: 0, steer: 0, brake: 0 }), []);
+  const drivingKey = driving ? driving.key : null;
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (driving) {
+      // In: the body goes where the car is, and the engine starts.
+      carRef.current = newCar(driving.x, driving.z, driving.heading);
+      statsRef.current = driving.stats;
+      if (body) {
+        body.position.set(driving.x, 0, driving.z);
+        body.rotation.y = driving.heading;
+      }
+      yawRef.current = driving.heading + Math.PI;
+      driveView.active = true;
+      carSound.start();
+      return;
+    }
+    // Out: the player steps out of the driver's door, and the camera stays where it was.
+    const car = carRef.current, stats = statsRef.current;
+    if (car && stats && body) {
+      const door = doorSpot(car, stats);
+      collider.resolve(car.x, car.z, door.x, door.z, spot);
+      body.position.set(spot.x, 0, spot.z);
+      body.rotation.y = car.heading;
+      cameraInput.yaw = Math.atan2(Math.sin(car.heading + Math.PI), Math.cos(car.heading + Math.PI));
+      yawRef.current = cameraInput.yaw;
+    }
+    carRef.current = null;
+    driveView.active = false;
+    driveView.kmh = 0;
+    carSound.stop();
+    releasePedals();
+    // `driving` itself is read through drivingKey: a new object for the same trip changes nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drivingKey]);
+  useEffect(() => () => {
+    carSound.stop();
+    driveView.active = false;
+  }, []);
 
   // A body that has just been put down asks the ground where it stands, and so does one
   // that has just been let go from being held somewhere (a seat on the club's platform).
@@ -107,6 +178,69 @@ export function LocalPlayer({
     const body = bodyRef.current;
     if (!body) return;
     const dt = Math.min(delta, MAX_FRAME_DT);
+
+    const car = carRef.current;
+    if (driving && car) {
+      // At the wheel.
+      const input = readPedals();
+      drive(car, input, driving.stats, dt, driving.ground, driving.boxes?.() ?? []);
+      if (car.hit > 2.5) carSound.thud(car.hit);
+      if (input.horn) carSound.hornOn();
+      else carSound.hornOff();
+      carSound.update(car.speed, input.gas);
+      motion.spin = car.spin;
+      motion.steer = car.steer;
+      motion.brake = car.brake;
+      // Only a big disagreement with the server wins: a car covers metres between two messages.
+      const server = takeServerPosition();
+      if (server && Math.hypot(server.x - car.x, server.z - car.z) > DRIVE_RECONCILE) {
+        car.x = server.x;
+        car.z = server.z;
+        car.speed = 0;
+      }
+      body.position.set(car.x, 0, car.z);
+      body.rotation.y = car.heading;
+      speedRef.current = 0;
+      driveView.kmh = kmh(car);
+      driveView.x = car.x;
+      driveView.z = car.z;
+      driveView.heading = car.heading;
+      driveView.gear = car.speed < -0.3 ? "R" : Math.abs(car.speed) < 0.3 ? (input.brake > 0 ? "R" : "N") : "D";
+      playerFocus.x = car.x;
+      playerFocus.y = 0;
+      playerFocus.z = car.z;
+      playerStreet.x = car.x;
+      playerStreet.z = car.z;
+      playerStreet.up = false;
+
+      // The chase camera.
+      yawRef.current += shortestAngle(yawRef.current, car.heading + Math.PI) * (1 - Math.exp(-dt * CHASE_SWING));
+      const yaw = yawRef.current;
+      cameraView.yaw = yaw;
+      const zoom = cameraInput.zoom;
+      const fast = Math.min(Math.abs(car.speed), 40);
+      const back = (CHASE_BACK + fast * 0.05) * zoom;
+      const up = CHASE_HEIGHT * Math.pow(zoom, 0.85) + fast * 0.015;
+      cameraGoal.set(car.x + Math.sin(yaw) * back, up, car.z + Math.cos(yaw) * back);
+      lookGoal.set(car.x - Math.sin(yaw) * CHASE_AHEAD, 1.0, car.z - Math.cos(yaw) * CHASE_AHEAD);
+      if (cameraReady.current) {
+        const ease = 1 - Math.exp(-dt * CAMERA_SMOOTHING * 1.6);
+        camera.position.lerp(cameraGoal, ease);
+        lookNow.lerp(lookGoal, ease);
+      } else {
+        camera.position.copy(cameraGoal);
+        lookNow.copy(lookGoal);
+        cameraReady.current = true;
+      }
+      camera.lookAt(lookNow);
+
+      sendTimer.current += dt;
+      if (sendTimer.current >= SEND_INTERVAL) {
+        sendTimer.current = 0;
+        sendMove(car.x, car.z, car.heading);
+      }
+      return;
+    }
 
     // 0. Which side the camera is on. Stood somewhere, in the creator or indoors it goes
     //    back to the front; otherwise it follows what the player asked for.
@@ -231,8 +365,12 @@ export function LocalPlayer({
 
   return (
     <group ref={bodyRef} position={[start.x, 0, start.z]}>
-      <Character speedRef={speedRef} look={look} fight={fight} />
-      {spraying && <SprayedNotes />}
+      {/* Kept loaded while driving, only hidden, so getting out does not wait for the body again. */}
+      <group visible={!driving}>
+        <Character speedRef={speedRef} look={look} fight={fight} />
+      </group>
+      {driving && <Car look={driving.look} motion={motion} driver={look} />}
+      {spraying && !driving && <SprayedNotes />}
       <Overhead said={said} out={out} />
     </group>
   );

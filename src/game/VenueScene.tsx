@@ -16,6 +16,7 @@ import {
   type SpotLight,
 } from "three";
 import { Animals } from "./Animals";
+import { Car } from "./Car";
 import { Character } from "./Character";
 import { HauntExtras } from "./HauntExtras";
 import type { MeshData } from "./districtGeometry";
@@ -24,7 +25,22 @@ import { playerFocus } from "./focus";
 import { nearestOf, type Near } from "./nearby";
 import type { NetPlayer } from "./types";
 import { buildVenue } from "./venueShapes";
-import { nearestSpecial, scareAt, venueThings, type Person, type Scare, type Sign, type Special, type VenueLayout } from "./venues";
+import { nearestSpecial, scareAt, venueThings, type Person, type Scare, type ShowCar, type Sign, type Special, type VenueLayout } from "./venues";
+
+const TURNTABLE_SPEED = 0.18;   // radians a second: once round in about half a minute
+
+/** A car on show. The flagship turns slowly on its stand. */
+function ShowCarModel({ car, colour }: { car: ShowCar; colour: string }) {
+  const group = useRef<Group>(null);
+  useFrame((_, delta) => {
+    if (car.turntable && group.current) group.current.rotation.y += delta * TURNTABLE_SPEED;
+  });
+  return (
+    <group ref={group} position={[car.x, car.turntable ? 0.12 : 0.05, car.z]} rotation-y={car.rot}>
+      <Car look={`${car.model}|${colour}|BEN 000 AM`} />
+    </group>
+  );
+}
 
 const BEATS_PER_SECOND = 2;
 const GHOST_SECONDS = 1.6;   // how long a ghost stands there before it is gone
@@ -151,12 +167,14 @@ type Props = {
   onNear: (thing: Near | null) => void;
   /** The thing the player is standing at that opens a panel: a shop, the boutique, a story. */
   onSpecial: (special: Special | null) => void;
+  /** At the dealership: the colour a car on show has been changed to, by model. */
+  carColours?: Record<string, string>;
   /** In the haunted house: the player walked into a scare. */
   onScare?: (scare: Scare) => void;
 };
 
 /** The inside of one of the rooms in venues.ts. */
-export function VenueScene({ layout, playersRef, onNear, onSpecial, onScare }: Props) {
+export function VenueScene({ layout, playersRef, onNear, onSpecial, onScare, carColours }: Props) {
   const meshes = useMemo(() => {
     const built = buildVenue(layout);
     return { solid: toGeometry(built.solid), glow: toGeometry(built.glow), glass: toGeometry(built.glass) };
@@ -275,6 +293,16 @@ export function VenueScene({ layout, playersRef, onNear, onSpecial, onScare }: P
   return (
     <>
       <color attach="background" args={[layout.sky]} />
+      {lighting === "showroom" && (
+        <>
+          <hemisphereLight args={["#ffffff", "#b9b6ae", 1.0]} />
+          <directionalLight position={[width / 2, 16, depth + 6]} intensity={1.0} castShadow />
+          {/* Three lights, not one per car: every light makes every shiny surface cost more on a phone. */}
+          {[[width * 0.2, depth * 0.4, 30], [width / 2, depth / 2, 34], [width * 0.8, depth * 0.4, 30]].map(([x, z, power]) => (
+            <pointLight key={x} position={[x, 5.0, z]} intensity={power} distance={22} decay={1.2} color="#fff8ee" />
+          ))}
+        </>
+      )}
       {lighting === "bright" && (
         <>
           <hemisphereLight args={["#ffffff", "#8a8070", 1.25]} />
@@ -378,6 +406,9 @@ export function VenueScene({ layout, playersRef, onNear, onSpecial, onScare }: P
         </mesh>
       )}
       {layout.fish && <Fish tanks={layout.fish} />}
+      {layout.cars?.map((car) => (
+        <ShowCarModel key={car.model} car={car} colour={carColours?.[car.model] ?? car.colour} />
+      ))}
       {layout.animals && <Animals herds={layout.animals} />}
 
       {layout.signs.map((sign) => (

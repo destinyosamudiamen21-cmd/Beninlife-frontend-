@@ -30,7 +30,11 @@ export type Thing = { spot: string; name: string; verb?: string; x: number; z: n
 export type Special =
   | { kind: "shop"; shop: string; name: string; x: number; z: number; reach: number }
   | { kind: "wardrobe"; name: string; x: number; z: number; reach: number }
-  | { kind: "story"; story: Story; x: number; z: number; reach: number };
+  | { kind: "story"; story: Story; x: number; z: number; reach: number }
+  | { kind: "car"; model: string; name: string; x: number; z: number; reach: number };
+
+/** A car on show: which one, in which colour, where, and which way it faces. */
+export type ShowCar = { model: string; colour: string; x: number; z: number; rot: number; turntable?: boolean };
 
 /** Someone who is always there. */
 export type Person = { x: number; z: number; rot: number; look: Look; move?: DanceMove | "sit"; label?: string; ghost?: boolean };
@@ -41,10 +45,10 @@ export type Scare = { id: string; x: number; z: number; r: number; kind: "ghost"
 /** A sign: words on a board, on a wall or over a counter. */
 export type Sign = { text: string; x: number; y: number; z: number; size: number; colour: string; back?: string; face?: "front" | "left" | "right" };
 
-export type Lighting = "bright" | "warm" | "club" | "dark" | "night" | "day" | "aqua" | "cinema";
+export type Lighting = "bright" | "warm" | "club" | "dark" | "night" | "day" | "aqua" | "cinema" | "showroom";
 
 export type VenueKind =
-  | "club" | "lounge" | "museum" | "haunted" | "mall" | "hospital" | "police" | "golf" | "cinema" | "food" | "shop" | "aquarium" | "flyover" | "zoo";
+  | "club" | "lounge" | "museum" | "haunted" | "mall" | "hospital" | "police" | "golf" | "cinema" | "food" | "shop" | "aquarium" | "flyover" | "zoo" | "showroom";
 
 export type VenueLayout = {
   id: string;
@@ -81,6 +85,8 @@ export type VenueLayout = {
   animals?: Herd[];
   /** Mist hanging in the air: how near it starts and how far it is thick, in metres. */
   mist?: { colour: string; near: number; far: number };
+  /** Cars on show, at the dealership. */
+  cars?: ShowCar[];
 };
 
 // ---- people --------------------------------------------------------------------------------
@@ -945,6 +951,79 @@ function zoo(): VenueLayout {
   });
 }
 
+// ---- the car dealership ------------------------------------------------------------------------
+
+/** Car lengths and widths, near enough, for keeping people out of the cars on show. */
+const SHOW_SIZE: Record<string, [number, number]> = {
+  kaze_sprint: [4.6, 1.8], kaze_muscle: [4.85, 1.85], falke_kx: [4.6, 1.9], falke_c40: [4.75, 1.85],
+  kaze_corvana24: [4.95, 1.88], falke_e5: [5.0, 1.92], falke_gx: [4.98, 2.05], lumea_rs: [5.15, 2.02],
+};
+const SHOW_NAMES: Record<string, string> = {
+  kaze_sprint: "Kaze Sprint", kaze_muscle: "Kaze Corvana \"Muscle\"", falke_kx: "Falke KX 350", falke_c40: "Falke C 40 Sport",
+  kaze_corvana24: "Kaze Corvana XSE", falke_e5: "Falke E 5", falke_gx: "Falke GX 450", lumea_rs: "Lumea RS 600",
+};
+
+function dealer(): VenueLayout {
+  const width = 40, depth = 26;
+  const gold = "#b8862b";
+  const cars: ShowCar[] = [
+    // The back row, nose out, under the lights.
+    { model: "kaze_sprint", colour: "silver", x: 5.5, z: 6.5, rot: 0 },
+    { model: "kaze_muscle", colour: "black", x: 12.5, z: 6.5, rot: 0 },
+    { model: "falke_kx", colour: "white", x: 27.5, z: 6.5, rot: 0 },
+    { model: "falke_c40", colour: "navy", x: 34.5, z: 6.5, rot: 0 },
+    // The flagship turning on its stand in the middle of the floor.
+    { model: "lumea_rs", colour: "white", x: 20, z: 13.2, rot: 0.6, turntable: true },
+    // Angled at the sides, where people coming in see them first.
+    { model: "kaze_corvana24", colour: "red", x: 5.8, z: 16.2, rot: 0.45 },
+    { model: "falke_e5", colour: "black", x: 34.2, z: 16.2, rot: -0.45 },
+    { model: "falke_gx", colour: "grey", x: 27.6, z: 21.8, rot: -1.15 },
+  ];
+  const boxes: Box[] = [
+    // The stand under the flagship, with a gold ring of light round its edge.
+    deco(20, 13.2, 3.4, 3.4, 0, 0.12, "#e9e9ec"),
+    glow(20, 13.2, 3.45, 3.45, 0.02, 0.06, gold),
+    // Low stands under the back row.
+    ...[5.5, 12.5, 27.5, 34.5].map((x) => deco(x, 6.5, 1.5, 3.0, 0, 0.05, "#d3d4d8")),
+    // The sales desk against the back wall, between the two halves of the back row.
+    solid(20, 3.2, 2.6, 0.55, 1.05, "#1d1d22"),
+    deco(20, 3.2, 2.62, 0.57, 1.05, 1.12, "#f4f4f2"),
+    glow(20, 3.78, 2.5, 0.01, 0.15, 0.2, gold),
+    // A wall of light behind it, and lights along the ceiling over each car.
+    deco(20, 0.12, 6, 0.08, 0.6, 3.9, "#141418"),
+    glow(20, 0.22, 5.8, 0.02, 3.55, 3.62, gold),
+    ...[5.5, 12.5, 27.5, 34.5, 20].map((x) => glow(x, x === 20 ? 13.2 : 6.5, 2.2, 0.06, 5.35, 5.42, "#ffffff")),
+    // The waiting corner: sofas round a low table, a plant, a water dispenser.
+    ...sofa(9, 21.2, 1.6, "#2a2a30", 1), ...sofa(9, 24.4, 1.6, "#2a2a30", -1),
+    solid(9, 22.8, 1.1, 0.55, 0.42, "#c9c6bf"),
+    ...plant(1.2, 24.6), ...plant(38.8, 24.6), ...plant(1.2, 1.2), ...plant(38.8, 1.2),
+    solid(14.2, 24.8, 0.25, 0.25, 1.2, "#e9eef2"),
+  ];
+  return room({
+    id: "dealer", name: "Benin Auto Mall", kind: "showroom", width, depth, wallHeight: 5.6,
+    floor: "#e6e7ea", floorAlt: "#dcdde1", wall: "#f5f5f7", trim: gold, sky: "#e8edf2", lighting: "showroom",
+    boxes,
+    cars,
+    specials: cars.map((car) => ({
+      kind: "car" as const, model: car.model, name: SHOW_NAMES[car.model] ?? car.model, x: car.x, z: car.z, reach: car.turntable ? 5.2 : 3.9,
+    })),
+    people: [
+      { x: 20, z: 2.4, rot: 0, look: STAFF(2, "#1d1d22", "woman"), label: "Sales" },
+      { x: 23.4, z: 12.2, rot: -1.9, look: STAFF(4, "#f4f4f1") },
+      { x: 9, z: 21.2 + 0.1, rot: 0, look: PARTY[1], move: "sit" },
+      { x: 26.3, z: 9.8, rot: 2.6, look: PARTY[4] },
+    ],
+    signs: [
+      { text: "BENIN AUTO MALL", x: 20, y: 2.9, z: 0.24, size: 0.62, colour: "#f4f4f2" },
+      { text: "Tokunbo · Brand new · Papers ready the same day", x: 20, y: 2.1, z: 0.24, size: 0.24, colour: gold },
+      ...cars.map((car) => ({
+        text: SHOW_NAMES[car.model] ?? car.model,
+        x: car.x, y: 0.55, z: car.z + (car.turntable ? 3.62 : 3.15), size: 0.2, colour: "#1d1d22", back: "#f4f4f2",
+      } as Sign)),
+    ],
+  });
+}
+
 export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
   [
     museum(), police(), supermarket("hallmark", "Hallmark Supermarket", "hallmark", 24, 18, "#c8432b"),
@@ -954,7 +1033,7 @@ export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
     aquarium(),
     club("patricia", "Club Patricia", 26, 20), club("patio", "Patio Club", 26, 20), club("space", "Space Club", 26, 20),
     club("darkalley", "Club Dark Alley", 24, 18),
-    haunted(), golf(), flyover(), zoo(),
+    haunted(), golf(), flyover(), zoo(), dealer(),
   ].map((layout) => [layout.id, layout]),
 );
 
@@ -969,6 +1048,14 @@ export function venueCollider(layout: VenueLayout): Collider {
   const solids: Building[] = layout.boxes
     .filter((box) => box.solid && box.y0 < 1.5)
     .map((box) => ({ r: [box.x, box.z, box.hx, box.hz, 0], f: 1, s: 0, k: "flat" }));
+  // Cars on show are walked round, not through. (The one on the turntable keeps the whole stand.)
+  for (const car of layout.cars ?? []) {
+    const [length, wide] = SHOW_SIZE[car.model] ?? [4.8, 1.9];
+    solids.push(car.turntable
+      ? { r: [car.x, car.z, 2.7, 2.7, 0], f: 1, s: 0, k: "flat" }
+      // A rectangle's first half-size runs along (cos a, sin a); the car's nose points along (sin rot, cos rot).
+      : { r: [car.x, car.z, length / 2, wide / 2, Math.PI / 2 - car.rot], f: 1, s: 0, k: "flat" });
+  }
   const reach = EDGE_MARGIN - PLAYER_RADIUS;
   return buildCollider({
     id: layout.id,

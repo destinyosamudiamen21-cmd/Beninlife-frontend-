@@ -95,6 +95,7 @@ export const PIN: Record<string, { glyph: string; colour: string }> = {
   flyover: { glyph: "bridge", colour: "#5a5f66" },
   zoo: { glyph: "paw", colour: "#8a5a2b" },
   rent: { glyph: "key", colour: "#7a4a2b" },
+  cars: { glyph: "car", colour: "#2a2a30" },
 };
 export const PLAIN_PIN = { glyph: "dot", colour: "#6b5a44" };
 

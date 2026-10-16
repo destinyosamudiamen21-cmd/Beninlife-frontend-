@@ -16,7 +16,12 @@ export type RosterEntry = {
   look: Look;
   /** What their body is doing: "legwork", "sit", "out" (passed out) ... or "" for nothing in particular. */
   pose: string;
+  /** The car they are driving, "model|colour|plate", or "" (or missing) on foot. */
+  car?: string;
 };
+
+/** A car standing on the street: whose it is, which car, and where. */
+export type ParkedCar = { id: string; look: string; x: number; z: number; rot: number };
 
 /** Something the server tells one player besides who is where. */
 export type WorldEvent =
