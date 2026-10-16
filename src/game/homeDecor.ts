@@ -2,8 +2,12 @@
 // has the last word (home_service.check_spot); this is the same arithmetic done first, so
 // the player sees red before they press the button and not an error after. No 3D imports.
 
-import type { FurnitureOption, HomePlan, PlacedItem, Spot } from "../api/home";
+import type { FurnitureOption, HomePlan, PlacedItem, Room, Spot } from "../api/home";
 import { footprint, itemRect, type Rect } from "./homeLayout";
+import { DOOR, doorways, insideOneRoom, serverNow } from "./homeRooms";
+
+/** Things that hang on a wall: their back must be against one. Must match the server. */
+export const ON_WALL = new Set(["painting", "clock", "ac"]);
 
 /** How much clear floor is left between the player and a piece they are offered, in metres. */
 const AHEAD = 0.35;
@@ -11,10 +15,21 @@ const AHEAD = 0.35;
 export const PICK_REACH = 1.0;
 const BODY = 0.3; // how much room the player's own body takes. Less than AHEAD, so a piece offered ahead is never on top of them.
 
-/** Cells that must stay empty so the door, the stairs and the people in the room can be reached. Must match the server. */
-export function reservedCells(plan: HomePlan, floor: number): Set<string> {
+/** Cells that must stay empty so the doors, the doorways, the stairs and the people in the house can be reached. Must match the server. */
+export function reservedCells(plan: HomePlan, floor: number, rooms: Room[] = [], now: number = serverNow()): Set<string> {
   const reserved = new Set<string>();
   const add = (x: number, z: number) => reserved.add(`${x},${z}`);
+  for (const door of doorways(rooms, floor, now)) {
+    for (let step = 0; step < DOOR; step++) {
+      if (door.axis === "x") {
+        add(door.line - 1, door.first + step);
+        add(door.line, door.first + step);
+      } else {
+        add(door.first + step, door.line - 1);
+        add(door.first + step, door.line);
+      }
+    }
+  }
   if (floor === 0) {
     for (let cx = plan.door.x; cx < plan.door.x + plan.door.w; cx++) {
       add(cx, 0);
@@ -43,14 +58,7 @@ export function reservedCells(plan: HomePlan, floor: number): Set<string> {
  * them from side to side, and its near edge just beyond them, away from the camera. It is
  * kept inside the room, so against the back wall it can land on top of them (and whyNot says so).
  */
-export function offerSpot(
-  plan: HomePlan,
-  floor: number,
-  option: FurnitureOption,
-  rot: number,
-  x: number,
-  z: number
-): Spot {
+export function offerSpot(plan: HomePlan, floor: number, option: FurnitureOption, rot: number, x: number, z: number): Spot {
   const room = plan.floors[floor] ?? plan.floors[0];
   const { w, d } = footprint(option, rot);
   const cellX = Math.round(x / plan.cell - w / 2);
@@ -64,17 +72,8 @@ export function offerSpot(
 }
 
 /** The patch of floor a piece would cover at a spot, in metres. */
-export function spotRect(
-  plan: HomePlan,
-  option: FurnitureOption,
-  spot: Spot
-): Rect {
-  return itemRect(plan, option, {
-    id: 0,
-    item: option.id,
-    gift: false,
-    ...spot,
-  });
+export function spotRect(plan: HomePlan, option: FurnitureOption, spot: Spot): Rect {
+  return itemRect(plan, option, { id: 0, item: option.id, gift: false, ...spot });
 }
 
 /**
@@ -89,20 +88,29 @@ export function whyNot(
   option: FurnitureOption,
   spot: Spot,
   ignoreId: number | null,
-  px: number,
-  pz: number
+  px: number | null,
+  pz: number | null,
+  rooms: Room[] = [],
 ): string | null {
-  const room = plan.floors[spot.floor];
-  if (!room) return "This house does not have that floor.";
+  const floorPlan = plan.floors[spot.floor];
+  if (!floorPlan) return "This house does not have that floor.";
   const { w, d } = footprint(option, spot.rot);
-  if (spot.x < 0 || spot.z < 0 || spot.x + w > room.w || spot.z + d > room.d)
+  if (rooms.length > 0) {
+    const room = insideOneRoom(rooms, spot.floor, spot.x, spot.z, w, d);
+    if (!room) return "Keep it inside one finished room, clear of the walls.";
+    if (ON_WALL.has(option.id)) {
+      // Its back is -z before it is turned; each quarter turn takes it to +x, +z, then -x.
+      const back = [spot.z === room.z, spot.x + w === room.x + room.w, spot.z + d === room.z + room.d, spot.x === room.x][spot.rot % 4];
+      if (!back) return "Hang it on a wall: put its back against one.";
+    }
+  } else if (spot.x < 0 || spot.z < 0 || spot.x + w > floorPlan.w || spot.z + d > floorPlan.d) {
     return "That does not fit inside the room.";
+  }
 
-  const reserved = reservedCells(plan, spot.floor);
+  const reserved = reservedCells(plan, spot.floor, rooms);
   for (let cx = spot.x; cx < spot.x + w; cx++) {
     for (let cz = spot.z; cz < spot.z + d; cz++) {
-      if (reserved.has(`${cx},${cz}`))
-        return "Keep the door, the stairs and the people clear.";
+      if (reserved.has(`${cx},${cz}`)) return "Keep the door, the stairs and the people clear.";
     }
   }
 
@@ -117,13 +125,9 @@ export function whyNot(
     if (!apartX && !apartZ) return "Something is already there.";
   }
 
-  if (option.solid) {
+  if (option.solid && px !== null && pz !== null) {
     const rect = spotRect(plan, option, spot);
-    if (
-      Math.abs(px - rect.cx) < rect.halfX + BODY &&
-      Math.abs(pz - rect.cz) < rect.halfZ + BODY
-    )
-      return "Step back: you are standing there.";
+    if (Math.abs(px - rect.cx) < rect.halfX + BODY && Math.abs(pz - rect.cz) < rect.halfZ + BODY) return "Step back: you are standing there.";
   }
   return null;
 }
@@ -138,7 +142,7 @@ export function nearestPiece(
   items: PlacedItem[],
   catalogue: FurnitureOption[],
   x: number,
-  z: number
+  z: number,
 ): PlacedItem | null {
   let best: PlacedItem | null = null;
   let bestGap = PICK_REACH;
@@ -150,15 +154,10 @@ export function nearestPiece(
     const turned = item.rot % 2 !== 0;
     const w = turned ? option.d : option.w;
     const d = turned ? option.w : option.d;
-    const overX =
-      Math.abs(x - (item.x + w / 2) * plan.cell) - (w * plan.cell) / 2;
-    const overZ =
-      Math.abs(z - (item.z + d / 2) * plan.cell) - (d * plan.cell) / 2;
+    const overX = Math.abs(x - (item.x + w / 2) * plan.cell) - (w * plan.cell) / 2;
+    const overZ = Math.abs(z - (item.z + d / 2) * plan.cell) - (d * plan.cell) / 2;
     const gap = Math.hypot(Math.max(overX, 0), Math.max(overZ, 0));
-    if (
-      gap < bestGap ||
-      (gap === bestGap && best !== null && item.id < best.id)
-    ) {
+    if (gap < bestGap || (gap === bestGap && best !== null && item.id < best.id)) {
       best = item;
       bestGap = gap;
     }

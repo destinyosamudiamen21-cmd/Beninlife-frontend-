@@ -285,6 +285,7 @@ const HELP: [string, string][] = [
   ["Messages", "A text reaches anyone, wherever they are. Each one takes a little data."],
   ["Friends", "Save somebody's number. When they save yours you are friends, and can see when the other is in the game and which part of town they are in."],
   ["Money", "Send money from a conversation or from the Bank. It arrives at once. There is a limit to how much can be sent and received in a day."],
+  ["Your house", "At home, press Build. Buy: pick from the catalogue, tap where it goes, tap again to buy. Tap anything you own to move, turn or sell it. Build: add a room against the house and pay the workers stage by stage. Paint: tap a room to try new walls and floors."],
 ];
 
 /** How the game is played, for anyone who has just arrived. */

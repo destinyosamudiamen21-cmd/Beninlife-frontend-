@@ -10,7 +10,7 @@ import {
 } from "../api/appearance";
 import { enterClub, fetchClub, inviteToBooth, rentBooth, type Club } from "../api/club";
 import { acceptCrew, declineCrew, fetchCrew, leaveCrew, type Crew } from "../api/crew";
-import { fetchHome, type Home, type HomeChange, type PlacedItem } from "../api/home";
+import { fetchHome, type Home, type HomeChange } from "../api/home";
 import type { Player } from "../api/players";
 import { fetchWallet } from "../api/phone";
 import { getStopped, type PoliceStop } from "../api/police";
@@ -25,11 +25,14 @@ import { ClubScene } from "./ClubScene";
 import { Compass } from "./Compass";
 import { CrewBar } from "./CrewBar";
 import { CrowdAndTraffic } from "./CrowdAndTraffic";
-import { DecoratePanel } from "./DecoratePanel";
+import { BuildCamera } from "./BuildCamera";
+import { BuildPanel } from "./BuildPanel";
 import { District } from "./District";
 import { ArenaHud } from "./FightPanel";
 import { Guide } from "./Guide";
-import { HomeScene, type Arranging, type Offer } from "./HomeScene";
+import { HomeScene } from "./HomeScene";
+import { EMPTY_VIEW, type BuildView } from "./homeBuild";
+import { isDone, serverNow, syncClock } from "./homeRooms";
 import { LifeActions, LifeHud } from "./LifePanel";
 import { LocalPlayer } from "./LocalPlayer";
 import { MapPanel } from "./MapPanel";
@@ -292,11 +295,11 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
   const [headingMetres, setHeadingMetres] = useState<number | null>(null);
   const [nearDoor, setNearDoor] = useState<Door | null>(null);      // a door or a spot the player is standing at
 
-  // Arranging the house.
+  // Building and arranging the house, as in The Sims.
   const [decorating, setDecorating] = useState(false);
-  const [arranging, setArranging] = useState<Arranging | null>(null);
-  const [offer, setOffer] = useState<Offer | null>(null);
-  const [picked, setPicked] = useState<PlacedItem | null>(null);
+  const [buildView, setBuildView] = useState<BuildView>(EMPTY_VIEW);
+  // Goes up when a room being built is finished, so its walls and doorways are walked into at once.
+  const [roomsDone, setRoomsDone] = useState(0);
 
   // The club.
   const [clubMenu, setClubMenu] = useState(false);
@@ -330,9 +333,19 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
   // Indoors: the walls, the stairs and the furniture on the floor being shown.
   const homeFloor = scene.kind === "home" ? scene.floor : 0;
   const indoorCollider = useMemo(
-    () => (home ? homeCollider(home.plan, homeFloor, home.items, home.catalogue) : null),
-    [home, homeFloor],
+    () => (home ? homeCollider(home.plan, homeFloor, home.items, home.catalogue, home.rooms, serverNow()) : null),
+    // `roomsDone` brings in a room the workers have just finished.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [home, homeFloor, roomsDone],
   );
+  // When the room being built will be finished, look again.
+  useEffect(() => {
+    if (!home) return;
+    const waiting = home.rooms.filter((room) => !isDone(room)).map((room) => room.ready_ms - serverNow());
+    if (waiting.length === 0) return;
+    const timer = window.setTimeout(() => setRoomsDone((value) => value + 1), Math.max(500, Math.min(...waiting) + 300));
+    return () => window.clearTimeout(timer);
+  }, [home, roomsDone]);
   // The club: the rope across the way in to VIP is open to those with a booth. The server
   // says how many seconds a booth has left; here that becomes a moment on the page's own
   // clock, so the countdown and the rope keep time without asking again.
@@ -522,6 +535,8 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       streetSpot.current = door ? { x: door.x, z: door.z } : { x: playerFocus.x, z: playerFocus.z };
       const inside = doorSpot(loaded.plan);
       homeLife.leave(); // whatever they were standing at outside is not in here
+      syncClock(loaded.now_ms);
+      if (loaded.note) flash(loaded.note);
       setHome(loaded);
       setMoney(loaded.money);
       setScene({ kind: "home", floor: 0 });
@@ -624,7 +639,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
     }
     homeLife.leave();
     setDecorating(false);
-    setArranging(null);
+    setBuildView(EMPTY_VIEW);
     setScene({ kind: "street" });
     appearAt(streetSpot.current.x, streetSpot.current.z);
     sendPlace("street");
@@ -864,12 +879,21 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
 
   // ---- arranging the house ------------------------------------------------------------------
   const houseChanged = (change: HomeChange) => {
-    setHome((current) => (current ? { ...current, items: change.items, money: change.money } : current));
+    syncClock(change.now_ms);
+    setHome((current) => (current ? { ...current, items: change.items, money: change.money, rooms: change.rooms ?? current.rooms } : current));
     setMoney(change.money);
   };
   const stopDecorating = () => {
     setDecorating(false);
-    setArranging(null);
+    setBuildView(EMPTY_VIEW);
+  };
+  /** Go up or down a floor while building: the player goes too, to the top or the bottom of the stairs. */
+  const buildFloor = (floor: number) => {
+    if (!home?.plan.stairs) return;
+    const stairs = home.plan.stairs;
+    const middle = (stairs.x + stairs.w / 2) * home.plan.cell;
+    const z = floor > 0 ? (stairs.z - 1) * home.plan.cell : (stairs.z + stairs.d + 1) * home.plan.cell;
+    takeStairs({ floor, x: middle, z });
   };
 
   // ---- the club -----------------------------------------------------------------------------
@@ -1074,12 +1098,10 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
             onStairs={takeStairs}
             usable={homeLife.usable}
             onNear={homeLife.setNear}
-            decorating={decorating}
-            onPick={setPicked}
-            arranging={arranging}
-            onOffer={setOffer}
+            build={decorating ? buildView : null}
           />
         )}
+        {scene.kind === "home" && home && decorating && <BuildCamera lot={home.plan.lot} cell={home.plan.cell} />}
         {scene.kind === "arena" && arena.club && (
           <ArenaScene
             coach={arena.club.coach}
@@ -1107,7 +1129,8 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
               said={said[player.id] ?? ""}
               out={homeLife.wakeAt !== null}
               spraying={homeLife.life?.doing?.pose === "spray"}
-              orbit={scene.kind === "street" || Boolean(venue?.open)}
+              orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)}
+              frozen={decorating}
             />
           )}
           {shared &&
@@ -1137,8 +1160,8 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       <Loader />
 
       {/* The map takes fingers and the mouse itself, so the walking controls step aside for it. */}
-      {!mapOpen && (
-        <TouchControls key={customising ? "spin" : "play"} mode={customising ? "spin" : "play"} turn={scene.kind === "street" || Boolean(venue?.open)} />
+      {!mapOpen && !decorating && (
+        <TouchControls key={customising ? "spin" : "play"} mode={customising ? "spin" : "play"} turn={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)} />
       )}
 
       {!photo && !mapOpen && (
@@ -1162,8 +1185,8 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
                 </button>
               )}
               {scene.kind === "home" && !tiedUp && !decorating && (
-                <button type="button" className="hud-button" onClick={() => setDecorating(true)}>
-                  Decorate
+                <button type="button" className="hud-button hud-build" onClick={() => setDecorating(true)}>
+                  Build
                 </button>
               )}
               {!indoors && !tiedUp && (
@@ -1268,7 +1291,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       {scene.kind === "arena" && !customising && <ArenaHud arena={arena} money={money} />}
 
       {/* Needs and the player's own clock: always in view, except where they would cover a fight or a form. */}
-      {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && <LifeHud life={homeLife.life} />}
+      {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && !decorating && <LifeHud life={homeLife.life} />}
 
       {/* Friends: an invite to answer, and who is rolling with this player. */}
       {!storyOpen && ride === null && (
@@ -1305,15 +1328,14 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       )}
 
       {scene.kind === "home" && home && decorating && !customising && (
-        <DecoratePanel
+        <BuildPanel
           playerId={player.id}
           home={home}
+          floor={scene.floor}
           money={money}
-          picked={picked}
-          arranging={arranging}
-          onArranging={setArranging}
-          offer={offer}
           onChange={houseChanged}
+          onView={setBuildView}
+          onFloor={buildFloor}
           onDone={stopDecorating}
         />
       )}
@@ -1343,7 +1365,7 @@ export function Game({ player, onSignOut }: { player: Player; onSignOut?: () => 
       )}
 
       {/* Wherever players share a place they can talk: typed for everyone near, and by voice for whoever is standing with them. */}
-      {sayBar && (
+      {sayBar && !decorating && (
         <SayBar onSay={speak} lines={lines} voice={Voice.supported() ? voiceState : null} voiceWith={voiceWith} onVoice={() => void toggleVoice()} />
       )}
 

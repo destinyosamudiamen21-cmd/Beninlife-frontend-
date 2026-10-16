@@ -23,17 +23,22 @@ const SEATS: Record<string, Rest[]> = {
   plastic_chair: [{ x: 0, z: 0.04, y: 0, face: "front" }],
   armchair: [{ x: 0, z: 0.12, y: 0, face: "front" }],
   sofa: [{ x: -0.42, z: 0.12, y: 0, face: "front" }, { x: 0.42, z: 0.12, y: 0, face: "front" }],
+  couch: [{ x: -0.3, z: 0.12, y: 0, face: "front" }, { x: 0.3, z: 0.12, y: 0, face: "front" }],
+  sofa3: [{ x: -0.72, z: 0.12, y: 0, face: "front" }, { x: 0, z: 0.12, y: 0, face: "front" }, { x: 0.72, z: 0.12, y: 0, face: "front" }],
 };
 const BEDS: Record<string, Rest[]> = {
   mattress: [{ x: 0, z: 0.86, y: 0.22, face: "front" }],
   bunk: [{ x: 0, z: 0.86, y: 0.52, face: "front" }],
   bed: [{ x: 0, z: 0.88, y: 0.54, face: "front" }],
   bigbed: [{ x: -0.42, z: 0.88, y: 0.6, face: "front" }, { x: 0.42, z: 0.88, y: 0.6, face: "front" }],
+  kingbed: [{ x: -0.45, z: 0.95, y: 0.6, face: "front" }, { x: 0.45, z: 0.95, y: 0.6, face: "front" }],
   // Along the sofa, the head on the far arm.
   sofa: [{ x: 0.84, z: 0.1, y: 0.5, face: "side" }],
+  couch: [{ x: 0.6, z: 0.1, y: 0.5, face: "side" }],
+  sofa3: [{ x: 1.1, z: 0.1, y: 0.5, face: "side" }],
 };
 /** What each thing done on furniture does with the body. The server sends the same as the pose. */
-const LYING = new Set(["lie_down", "sleep_mattress", "sleep_bunk", "sleep_bed", "sleep_bigbed", "phone_bed", "nap"]);
+const LYING = new Set(["lie_down", "sleep_mattress", "sleep_bunk", "sleep_bed", "sleep_bigbed", "sleep_kingbed", "phone_bed", "nap"]);
 const SITTING = new Set(["sit", "feet_up", "call_friend", "doze"]);
 
 /**

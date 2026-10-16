@@ -1,61 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
-import { BufferAttribute, BufferGeometry } from "three";
+import { BufferAttribute, BufferGeometry, type Group } from "three";
 import type { Look } from "../api/appearance";
-import type { FurnitureOption, Home, PlacedItem, Spot } from "../api/home";
+import type { Home, Room } from "../api/home";
 import { Character } from "./Character";
 import type { MeshData } from "./districtGeometry";
-import { playerFocus } from "./focus";
-import { nearestPiece, offerSpot, spotRect, whyNot } from "./homeDecor";
-import { buildFurniture, buildRoom } from "./homeGeometry";
-import {
-  fixtureRect,
-  itemRect,
-  roomSize,
-  stairTrigger,
-  type FloorChange,
-  type Rect,
-} from "./homeLayout";
+import { cameraView, playerFocus } from "./focus";
+import { buildCam, buildInput, type BuildView } from "./homeBuild";
+import { spotRect } from "./homeDecor";
+import { buildFurniture, buildHouse, buildPiece, looksOf } from "./homeGeometry";
+import { fixtureRect, itemRect, stairTrigger, type FloorChange, type Rect } from "./homeLayout";
 import { homeThings } from "./homeLife";
+import { isDone, serverNow } from "./homeRooms";
 import { nearestOf, type Near } from "./nearby";
 
-const OUTSIDE = "#cfdcc6"; // what shows beyond the walls
-const MARK = "#f4d27a"; // the patch of floor that shows which thing would be used
-const PICK = "#6ab7ff"; // ... which piece would be moved or sold
-const FITS = "#48bb78"; // ... where a piece would go, when it fits
-const NO_FIT = "#d64545"; // ... and when it does not
-const MARK_EDGE = 0.18; // how far the patch reaches past the furniture, in metres
+const OUTSIDE = "#cfdcc6"; // the sky beyond the plot
+const MARK = "#f4d27a";    // the patch of floor that shows which thing would be used
+const PICK = "#6ab7ff";    // ... the piece picked out while building
+const FITS = "#48bb78";    // ... where a piece would go, when it fits
+const NO_FIT = "#d64545";  // ... and when it does not
+const MARK_EDGE = 0.18;    // how far the patch reaches past the furniture, in metres
 const MARK_HEIGHT = 0.045; // above the floor, and above a rug lying on it
-const CHECK_EVERY = 6; // frames between looks at whether a piece fits where it is offered
+const TAP_SLOP = 8;        // pixels a pointer may move and still count as a tap
+const BLADE_SPEED = 9;     // radians a second for a ceiling fan
 
 // The people who come with a hostel room. `look` on a fixture picks one of these.
 const ROOMMATES: Look[] = [
-  {
-    body: "man",
-    skin_tone: "#613a25",
-    hair_color: "#17120f",
-    top_color: "#d64545",
-    bottom_color: "#2b3a55",
-    shoe_color: "#ede6d6",
-  },
-  {
-    body: "man",
-    skin_tone: "#8d5a3b",
-    hair_color: "#17120f",
-    top_color: "#ede6d6",
-    bottom_color: "#3a3d42",
-    shoe_color: "#1d1d1f",
-  },
-  {
-    body: "man",
-    skin_tone: "#4b2c1c",
-    hair_color: "#17120f",
-    top_color: "#2f9e54",
-    bottom_color: "#5d4a39",
-    shoe_color: "#1d1d1f",
-  },
+  { body: "man", skin_tone: "#613a25", hair_color: "#17120f", top_color: "#d64545", bottom_color: "#2b3a55", shoe_color: "#ede6d6" },
+  { body: "man", skin_tone: "#8d5a3b", hair_color: "#17120f", top_color: "#ede6d6", bottom_color: "#3a3d42", shoe_color: "#1d1d1f" },
+  { body: "man", skin_tone: "#4b2c1c", hair_color: "#17120f", top_color: "#2f9e54", bottom_color: "#5d4a39", shoe_color: "#1d1d1f" },
 ];
+// A bricklayer in a hi-vis vest, on every building site.
+const WORKER: Look = { body: "man", skin_tone: "#5a3622", hair_color: "#17120f", top_color: "#f08a1c", bottom_color: "#3a3d42", shoe_color: "#3b2a20" };
 
 function toGeometry(mesh: MeshData): BufferGeometry {
   const geometry = new BufferGeometry();
@@ -67,17 +44,28 @@ function toGeometry(mesh: MeshData): BufferGeometry {
   return geometry;
 }
 
-/** What the player is arranging, if they are arranging the house. */
-export type Arranging = {
-  /** The piece being put down: a new one, or one already in the house. */
-  option: FurnitureOption;
-  rot: number;
-  /** The piece being moved, which is not in its own way. Null for a new one. */
-  moving: PlacedItem | null;
-};
+/** Which of eight ways round the camera is: walls are cut away again only when this changes. */
+function eighth(yaw: number): number {
+  return ((Math.round(yaw / (Math.PI / 4)) % 8) + 8) % 8;
+}
 
-/** Where the piece being arranged would go right now, and why it cannot, if it cannot. */
-export type Offer = { spot: Spot; why: string | null };
+/** The blades of a ceiling fan, turning. */
+function FanBlades({ x, z }: { x: number; z: number }) {
+  const ref = useRef<Group>(null);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.y += Math.min(delta, 0.1) * BLADE_SPEED;
+  });
+  return (
+    <group ref={ref} position={[x, 2.4, z]}>
+      {[0, 1, 2, 3].map((blade) => (
+        <mesh key={blade} rotation={[0, (blade * Math.PI) / 2, 0]} position={[Math.sin((blade * Math.PI) / 2) * 0.36, 0, Math.cos((blade * Math.PI) / 2) * 0.36]}>
+          <boxGeometry args={[0.13, 0.015, 0.62]} />
+          <meshLambertMaterial color="#5b3d28" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
 
 type Props = {
   home: Home;
@@ -89,49 +77,56 @@ type Props = {
   usable: ReadonlySet<string>;
   /** Tells the game which thing the player is standing at. Called only when it changes. */
   onNear: (thing: Near | null) => void;
-  /** True while the house is being arranged: the piece the player stands at is picked out instead. */
-  decorating?: boolean;
-  /** Tells the game which piece that is. Called only when it changes. */
-  onPick?: (item: PlacedItem | null) => void;
-  /** Set while a piece is being put down. */
-  arranging?: Arranging | null;
-  /** Tells the game where it would go. Called only when the answer changes. */
-  onOffer?: (offer: Offer | null) => void;
+  /** Set while building: walls down, the grid, and what is being put down or picked out. */
+  build?: BuildView | null;
 };
 
-/** The inside of a player's house: one floor of it, with its furniture and whoever lives there too. */
-export function HomeScene({
-  home,
-  floor,
-  onStairs,
-  usable,
-  onNear,
-  decorating = false,
-  onPick,
-  arranging = null,
-  onOffer,
-}: Props) {
+/** A player's house: one floor of it, with its furniture, whoever lives there too, and any room being built. */
+export function HomeScene({ home, floor, onStairs, usable, onNear, build = null }: Props) {
   const { plan, items, catalogue } = home;
-  const { width, depth } = roomSize(plan, floor);
+  const building = build !== null;
+  const cell = plan.cell;
 
-  // The room only changes with the floor; the furniture changes whenever something is bought or moved.
-  const room = useMemo(() => toGeometry(buildRoom(plan, floor)), [plan, floor]);
+  // Which way the camera looks from, a few times a second: walls between it and the house are cut down.
+  const [view, setView] = useState(() => eighth(building ? buildCam.yaw : cameraView.yaw));
+  // Rooms being built change as the workers go: redraw them every couple of seconds while any are.
+  const [tick, setTick] = useState(0);
+  const anyBuilding = home.rooms.some((room) => !isDone(room));
+  useEffect(() => {
+    if (!anyBuilding) return;
+    const timer = window.setInterval(() => setTick((value) => value + 1), 2000);
+    return () => window.clearInterval(timer);
+  }, [anyBuilding]);
+
+  const rooms: Room[] = useMemo(() => {
+    const preview = build?.preview;
+    if (!preview) return home.rooms;
+    return home.rooms.map((room) => (room.id === preview.roomId ? { ...room, wall: preview.wall ?? room.wall, ground: preview.ground ?? room.ground } : room));
+  }, [home.rooms, build?.preview]);
+  const look = useMemo(() => looksOf(home.paints, home.finishes), [home.paints, home.finishes]);
+
+  const house = useMemo(() => {
+    const angle = (view * Math.PI) / 4;
+    return toGeometry(buildHouse(plan, rooms, floor, look, { low: building, dirX: Math.sin(angle), dirZ: Math.cos(angle) }, { grid: building, now: serverNow() }));
+    // `tick` redraws a building site as it goes up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, rooms, floor, look, view, building, tick]);
   const furniture = useMemo(
-    () => toGeometry(buildFurniture(plan, floor, items, catalogue)),
-    [plan, floor, items, catalogue]
+    () => toGeometry(buildFurniture(plan, floor, items, catalogue, build?.moving ?? null)),
+    [plan, floor, items, catalogue, build?.moving],
   );
-  useEffect(() => () => room.dispose(), [room]);
+  useEffect(() => () => house.dispose(), [house]);
   useEffect(() => () => furniture.dispose(), [furniture]);
 
+  const ghost = build?.ghost ?? null;
+  const ghostMesh = useMemo(() => (ghost ? toGeometry(buildPiece(plan, ghost.option, ghost.spot)) : null), [plan, ghost]);
+  useEffect(() => () => ghostMesh?.dispose(), [ghostMesh]);
+
   // Everything on this floor that can be used, worked out once per change to the house.
-  const things = useMemo(
-    () => homeThings(plan, floor, items, catalogue, usable),
-    [plan, floor, items, catalogue, usable]
-  );
-  const people =
-    floor === 0
-      ? (plan.fixtures ?? []).filter((fixture) => fixture.kind === "person")
-      : [];
+  const things = useMemo(() => homeThings(plan, floor, items, catalogue, usable), [plan, floor, items, catalogue, usable]);
+  const people = floor === 0 ? (plan.fixtures ?? []).filter((fixture) => fixture.kind === "person") : [];
+  const fans = items.filter((item) => item.floor === floor && item.item === "ceiling_fan" && item.id !== build?.moving);
+  const sites = rooms.filter((room) => room.floor === floor && !isDone(room));
   const still = useRef(0); // nobody here walks
 
   // Watch for the player stepping onto the stairs. It fires once per visit to a floor.
@@ -144,78 +139,19 @@ export function HomeScene({
   // but only set when the answer changes, not on every frame.
   const [near, setNear] = useState<Near | null>(null);
   const nearNow = useRef<Near | null>(null);
-  const [picked, setPicked] = useState<PlacedItem | null>(null);
-  const pickedNow = useRef<PlacedItem | null>(null);
-  const [offer, setOffer] = useState<Offer | null>(null);
-  const offerNow = useRef<Offer | null>(null);
-  const frames = useRef(0);
 
   useFrame(() => {
-    const x = playerFocus.x,
-      z = playerFocus.z;
+    const turned = eighth(building ? buildCam.yaw : cameraView.yaw);
+    if (turned !== view) setView(turned);
 
-    // Using things and arranging them are two different modes: only one is live at a time.
-    const at = decorating ? null : nearestOf(things, x, z);
+    const at = building ? null : nearestOf(things, playerFocus.x, playerFocus.z);
     if (at !== nearNow.current) {
       nearNow.current = at;
       setNear(at);
       onNear(at);
     }
-    const piece =
-      decorating && !arranging
-        ? nearestPiece(plan, floor, items, catalogue, x, z)
-        : null;
-    if (piece !== pickedNow.current) {
-      pickedNow.current = piece;
-      setPicked(piece);
-      onPick?.(piece);
-    }
-
-    if (arranging) {
-      // Where the piece would go follows the player, a cell at a time. Whether it fits is
-      // looked at a few times a second: often enough to feel live, without doing the sums every frame.
-      frames.current += 1;
-      const spot = offerSpot(
-        plan,
-        floor,
-        arranging.option,
-        arranging.rot,
-        x,
-        z
-      );
-      const last = offerNow.current;
-      const moved =
-        !last ||
-        last.spot.x !== spot.x ||
-        last.spot.z !== spot.z ||
-        last.spot.rot !== spot.rot ||
-        last.spot.floor !== spot.floor;
-      if (moved || frames.current % CHECK_EVERY === 0) {
-        const why = whyNot(
-          plan,
-          items,
-          catalogue,
-          arranging.option,
-          spot,
-          arranging.moving?.id ?? null,
-          x,
-          z
-        );
-        if (moved || why !== last?.why) {
-          const next = { spot, why };
-          offerNow.current = next;
-          setOffer(next);
-          onOffer?.(next);
-        }
-      }
-    } else if (offerNow.current) {
-      offerNow.current = null;
-      setOffer(null);
-      onOffer?.(null);
-    }
-
-    if (climbed.current || decorating) return; // nobody carries a wardrobe up the stairs by accident
-    const change = stairTrigger(plan, floor, x, z);
+    if (climbed.current || building) return; // nobody carries a wardrobe up the stairs by accident
+    const change = stairTrigger(plan, floor, playerFocus.x, playerFocus.z);
     if (change) {
       climbed.current = true;
       onStairs(change);
@@ -228,93 +164,117 @@ export function HomeScene({
       nearNow.current = null;
       onNear(null);
     },
-    [onNear]
+    [onNear],
   );
 
-  let mark: Rect | null = null,
-    colour = MARK;
-  if (arranging && offer) {
-    mark = spotRect(plan, arranging.option, offer.spot);
-    colour = offer.why ? NO_FIT : FITS;
-  } else if (picked) {
-    const option = catalogue.find((entry) => entry.id === picked.item);
-    mark = option ? itemRect(plan, option, picked) : null;
-    colour = PICK;
-  } else if (near) {
-    mark = { cx: near.x, cz: near.z, halfX: near.halfX, halfZ: near.halfZ };
+  // A tap while building: the point on the floor (or on a piece of furniture) under it.
+  const tap = (event: ThreeEvent<MouseEvent>) => {
+    if (!building || event.delta > TAP_SLOP) return;
+    event.stopPropagation();
+    buildInput.onTap?.(event.point.x, event.point.z);
+  };
+
+  // The patches of light on the floor.
+  const marks: { rect: Rect; colour: string; opacity: number }[] = [];
+  if (ghost) marks.push({ rect: spotRect(plan, ghost.option, ghost.spot), colour: ghost.ok ? FITS : NO_FIT, opacity: 0.55 });
+  if (build?.selected != null && !ghost) {
+    const item = items.find((entry) => entry.id === build.selected);
+    const option = item ? catalogue.find((entry) => entry.id === item.item) : undefined;
+    if (item && option) marks.push({ rect: itemRect(plan, option, item), colour: PICK, opacity: 0.6 });
   }
+  if (build?.room) {
+    const { shape, ok } = build.room;
+    marks.push({ rect: { cx: (shape.x + shape.w / 2) * cell, cz: (shape.z + shape.d / 2) * cell, halfX: (shape.w * cell) / 2 - MARK_EDGE, halfZ: (shape.d * cell) / 2 - MARK_EDGE }, colour: ok ? FITS : NO_FIT, opacity: 0.45 });
+  }
+  if (build?.selectedRoom != null) {
+    const room = rooms.find((entry) => entry.id === build.selectedRoom);
+    if (room) marks.push({ rect: { cx: (room.x + room.w / 2) * cell, cz: (room.z + room.d / 2) * cell, halfX: (room.w * cell) / 2 - MARK_EDGE, halfZ: (room.d * cell) / 2 - MARK_EDGE }, colour: MARK, opacity: 0.22 });
+  }
+  if (!building && near) marks.push({ rect: { cx: near.x, cz: near.z, halfX: near.halfX, halfZ: near.halfZ }, colour: MARK, opacity: 0.55 });
+
+  const lot = plan.lot;
+  const lotRect = lot
+    ? { cx: ((lot.min_x + lot.max_x) / 2) * cell, cz: ((lot.min_z + lot.max_z) / 2) * cell, w: (lot.max_x - lot.min_x) * cell + 20, d: (lot.max_z - lot.min_z) * cell + 20 }
+    : { cx: 5, cz: 5, w: 40, d: 40 };
+  const sun = { x: lotRect.cx + 6, z: lotRect.cz + 10 };
 
   return (
     <>
-      <color attach='background' args={[OUTSIDE]} />
+      <color attach="background" args={[OUTSIDE]} />
       {/* Indoors the light comes from everywhere, so nothing is ever in deep shadow. */}
-      <ambientLight intensity={1.4} />
+      <ambientLight intensity={1.35} />
       <hemisphereLight args={["#ffffff", "#8a7a66", 0.7]} />
       <directionalLight
-        position={[width / 2 + 3, 9, depth + 5]}
-        intensity={1.8}
-        color='#fff4e2'
+        position={[sun.x, 14, sun.z]}
+        intensity={1.7}
+        color="#fff4e2"
         castShadow
         shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-16}
-        shadow-camera-right={16}
-        shadow-camera-top={16}
-        shadow-camera-bottom={-16}
+        shadow-camera-left={-20}
+        shadow-camera-right={20}
+        shadow-camera-top={20}
+        shadow-camera-bottom={-20}
         shadow-camera-near={1}
-        shadow-camera-far={40}
+        shadow-camera-far={50}
         shadow-bias={-0.0005}
         shadow-normalBias={0.03}
       />
 
-      <mesh geometry={room} receiveShadow>
+      <mesh geometry={house} receiveShadow onClick={tap}>
         <meshLambertMaterial vertexColors />
       </mesh>
-      <mesh geometry={furniture} castShadow receiveShadow>
+      <mesh geometry={furniture} castShadow receiveShadow onClick={tap}>
         <meshLambertMaterial vertexColors />
       </mesh>
+      {building && (
+        // An invisible floor over the whole plot, so a tap anywhere lands somewhere.
+        <mesh position={[lotRect.cx, -0.01, lotRect.cz]} rotation={[-Math.PI / 2, 0, 0]} onClick={tap}>
+          <planeGeometry args={[lotRect.w, lotRect.d]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      )}
+
+      {fans.map((item) => {
+        const option = catalogue.find((entry) => entry.id === item.item);
+        if (!option) return null;
+        const rect = itemRect(plan, option, item);
+        return <FanBlades key={item.id} x={rect.cx} z={rect.cz} />;
+      })}
+
+      {ghostMesh && (
+        <mesh geometry={ghostMesh} renderOrder={2}>
+          <meshLambertMaterial color={ghost?.ok ? "#9ff0bd" : "#ff9a8f"} transparent opacity={0.72} depthWrite={false} />
+        </mesh>
+      )}
 
       {people.map((fixture) => {
         const rect = fixtureRect(plan, fixture);
         return (
-          <group
-            key={fixture.id}
-            position={[rect.cx, 0, rect.cz]}
-            rotation={[0, (fixture.rot * Math.PI) / 2, 0]}
-          >
-            <Character
-              speedRef={still}
-              look={ROOMMATES[fixture.look % ROOMMATES.length]}
-            />
-            <Html
-              position={[0, 2.05, 0]}
-              center
-              zIndexRange={[4, 0]}
-              style={{ pointerEvents: "none" }}
-            >
-              <div className='nametag'>{fixture.name}</div>
+          <group key={fixture.id} position={[rect.cx, 0, rect.cz]} rotation={[0, (fixture.rot * Math.PI) / 2, 0]}>
+            <Character speedRef={still} look={ROOMMATES[fixture.look % ROOMMATES.length]} />
+            <Html position={[0, 2.05, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: "none" }}>
+              <div className="nametag">{fixture.name}</div>
             </Html>
           </group>
         );
       })}
 
-      {/* A patch of light on the floor: round the thing that would be used, the piece that
-          would be moved, or where a new piece would go. It lies flat, just above the floor. */}
-      {mark && (
-        <mesh
-          position={[mark.cx, MARK_HEIGHT, mark.cz]}
-          rotation={[-Math.PI / 2, 0, 0]}
-        >
-          <planeGeometry
-            args={[(mark.halfX + MARK_EDGE) * 2, (mark.halfZ + MARK_EDGE) * 2]}
-          />
-          <meshBasicMaterial
-            color={colour}
-            transparent
-            opacity={arranging ? 0.7 : 0.55}
-            depthWrite={false}
-          />
+      {/* A bricklayer at every room going up, looking at it, with a sign of how far along it is. */}
+      {sites.map((room) => (
+        <group key={room.id} position={[(room.x + room.w / 2) * cell, 0, (room.z + room.d) * cell + 0.9]} rotation={[0, Math.PI, 0]}>
+          <Character speedRef={still} look={WORKER} />
+          <Html position={[0, 2.2, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: "none" }}>
+            <div className="nametag site-tag">{room.name} · building</div>
+          </Html>
+        </group>
+      ))}
+
+      {marks.map(({ rect, colour, opacity }, index) => (
+        <mesh key={index} position={[rect.cx, MARK_HEIGHT + index * 0.002, rect.cz]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
+          <planeGeometry args={[(rect.halfX + MARK_EDGE) * 2, (rect.halfZ + MARK_EDGE) * 2]} />
+          <meshBasicMaterial color={colour} transparent opacity={opacity} depthWrite={false} />
         </mesh>
-      )}
+      ))}
     </>
   );
 }
