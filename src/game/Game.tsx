@@ -1,11 +1,4 @@
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Loader } from "@react-three/drei";
 import {
@@ -15,48 +8,15 @@ import {
   type Look,
   type LookOptions,
 } from "../api/appearance";
-import {
-  enterClub,
-  fetchClub,
-  inviteToBooth,
-  rentBooth,
-  type Club,
-} from "../api/club";
-import {
-  bringCar,
-  carLook,
-  fetchCars,
-  getIn,
-  getOut,
-  sendCarHome,
-  type Cars,
-  type OwnedCar,
-} from "../api/cars";
-import {
-  acceptCrew,
-  declineCrew,
-  fetchCrew,
-  leaveCrew,
-  type Crew,
-} from "../api/crew";
+import { enterClub, fetchClub, inviteToBooth, rentBooth, type Club } from "../api/club";
+import { bringCar, carLook, fetchCars, getIn, getOut, sendCarHome, type Cars, type OwnedCar } from "../api/cars";
+import { acceptCrew, declineCrew, fetchCrew, leaveCrew, type Crew } from "../api/crew";
 import { fetchHome, type Home, type HomeChange } from "../api/home";
 import type { Player } from "../api/players";
 import { fetchWallet } from "../api/phone";
 import { getStopped, type PoliceStop } from "../api/police";
-import {
-  fetchStory,
-  tellStory,
-  type StoryResult,
-  type StoryState,
-} from "../api/story";
-import {
-  fetchCity,
-  goTo,
-  type City,
-  type CityPlace,
-  type Going,
-  type RideOption,
-} from "../api/travel";
+import { fetchStory, tellStory, type StoryResult, type StoryState } from "../api/story";
+import { fetchCity, goTo, type City, type CityPlace, type Going, type RideOption } from "../api/travel";
 import { ArenaScene } from "./ArenaScene";
 import { BusRide, type RideKind } from "./BusRide";
 import { CharacterCreator } from "./CharacterCreator";
@@ -70,14 +30,7 @@ import { BuildCamera } from "./BuildCamera";
 import { BuildPanel } from "./BuildPanel";
 import { ParkedCars } from "./Car";
 import { CarKeysPanel, DealerPanel, DriveHud } from "./CarPanels";
-import {
-  carBox,
-  carParkSpots,
-  statsFor,
-  touchesBox,
-  withCars,
-  type Box,
-} from "./carPhysics";
+import { carBox, carParkSpots, statsFor, touchesBox, withCars, type Box } from "./carPhysics";
 import { carParts, readCarLook } from "./carShapes";
 import { District } from "./District";
 import { ArenaHud } from "./FightPanel";
@@ -120,14 +73,12 @@ import type { RosterEntry, WorldEvent } from "./types";
 import { useFightClub } from "./useFightClub";
 import { useHomeLife } from "./useHomeLife";
 import { useWorldSocket } from "./useWorldSocket";
-import {
-  VENUES,
-  isVenue,
-  venueCollider,
-  type Scare,
-  type Special,
-} from "./venues";
+import { VENUES, isVenue, venueCollider, type Scare, type Special } from "./venues";
 import { Voice, type VoiceState } from "./voice";
+import { useNewVersion } from "./updateCheck";
+import { claimBonus, dropDelivery, fetchJobs, handOver, takeDelivery, type Delivery } from "../api/jobs";
+import { DeliveryHud } from "./DeliveryHud";
+import { StreetMusic, rememberStreetMusic, streetMusicWanted } from "./streetMusic";
 
 // Where everyone starts. The bus takes players to the other districts.
 const FIRST_DISTRICT = "uniben";
@@ -150,13 +101,7 @@ const HOSTEL_ROOMS = ["hostel4", "hostel2"];
 type Spawn = { x: number; z: number; key: number };
 
 /** A ride in progress: where from, where to, what it is, what was paid and how long it takes to watch. */
-type Ride = {
-  from: string;
-  to: string;
-  fare: number;
-  mode: RideKind;
-  seconds: number;
-};
+type Ride = { from: string; to: string; fare: number; mode: RideKind; seconds: number };
 
 /** A place the player picked on the map and is walking to: the guide points at it. */
 type Heading = { name: string; district: string; x: number; z: number };
@@ -164,14 +109,14 @@ type Heading = { name: string; district: string; x: number; z: number };
 // A phone draws a smaller crowd than a laptop, so it stays smooth.
 const SMALL_SCREEN = { walkers: 150, vehicles: 40 };
 
-const SPOT_REACH = 2.6; // metres from something on the street at which it can be used: the same as a door
-const BUBBLE_SECONDS = 5; // how long what somebody said stays over their head
-const LINE_SECONDS = 14; // ... and in the list at the side
+const SPOT_REACH = 2.6;      // metres from something on the street at which it can be used: the same as a door
+const BUBBLE_SECONDS = 5;    // how long what somebody said stays over their head
+const LINE_SECONDS = 14;     // ... and in the list at the side
 const NOTICE_SECONDS = 6;
 const PHOTO_SECONDS = 8;
-const VOICE_EVERY = 500; // milliseconds between looks at who is near enough to talk to
-const SAY_EVERY = 0.65; // seconds between two things said out loud: a little more than the server asks
-const ARRIVED = 6; // metres from a place at which the guide says "you are here" and goes away
+const VOICE_EVERY = 500;     // milliseconds between looks at who is near enough to talk to
+const SAY_EVERY = 0.65;      // seconds between two things said out loud: a little more than the server asks
+const ARRIVED = 6;           // metres from a place at which the guide says "you are here" and goes away
 
 // Inside a room the floor is flat.
 const flatFloor = () => 0;
@@ -187,31 +132,15 @@ const RINGSIDE = ringside();
 /** Something on the street that is used where it stands (a buka, a shuttle stop), as a thing the player can stand at. */
 function streetThing(door: Door): Near {
   const id = door.id.slice("spot:".length);
-  let verb = "Go into",
-    name = door.text;
+  let verb = "Go into", name = door.text;
   if (id.startsWith("stop_")) [verb, name] = ["Take", "the shuttle"];
   else if (id.startsWith("keke_")) [verb, name] = ["Take", "a keke"];
   else if (id === "park" || id === "track") verb = "Stop at";
-  return {
-    key: door.id,
-    target: { spot: id },
-    name,
-    verb,
-    x: door.x,
-    z: door.z,
-    halfX: 0,
-    halfZ: 0,
-    reach: SPOT_REACH,
-  };
+  return { key: door.id, target: { spot: id }, name, verb, x: door.x, z: door.z, halfX: 0, halfZ: 0, reach: SPOT_REACH };
 }
 
-export function Game({
-  player,
-  onSignOut,
-}: {
-  player: Player;
-  onSignOut?: () => void;
-}) {
+export function Game({ player, onSignOut, admin = false }: { player: Player; onSignOut?: () => void; admin?: boolean }) {
+  const newVersion = useNewVersion();
   // Everything that asks "where is the player?" before their body has been drawn (a
   // refresh in the middle of something, say) must get where they really are, not (0, 0).
   useState(() => {
@@ -221,13 +150,8 @@ export function Game({
   });
 
   // ---- voice, which the live connection feeds and is fed by ---------------------------
-  const signalOut = useRef<(to: string, data: Record<string, unknown>) => void>(
-    () => {}
-  );
-  const voice = useMemo(
-    () => new Voice(player.id, (to, data) => signalOut.current(to, data)),
-    [player.id]
-  );
+  const signalOut = useRef<(to: string, data: Record<string, unknown>) => void>(() => {});
+  const voice = useMemo(() => new Voice(player.id, (to, data) => signalOut.current(to, data)), [player.id]);
   const [voiceState, setVoiceState] = useState<VoiceState>("off");
   const [voiceWith, setVoiceWith] = useState(0);
   const [talking, setTalking] = useState<ReadonlySet<string>>(new Set());
@@ -255,19 +179,10 @@ export function Game({
       const key = ++lineKey.current;
       setLines((current) => [...current.slice(-3), { key, name, text, mine }]);
       setSaid((current) => ({ ...current, [id]: text }));
-      later(
-        () =>
-          setSaid((current) =>
-            current[id] === text ? { ...current, [id]: "" } : current
-          ),
-        BUBBLE_SECONDS
-      );
-      later(
-        () => setLines((current) => current.filter((line) => line.key !== key)),
-        LINE_SECONDS
-      );
+      later(() => setSaid((current) => (current[id] === text ? { ...current, [id]: "" } : current)), BUBBLE_SECONDS);
+      later(() => setLines((current) => current.filter((line) => line.key !== key)), LINE_SECONDS);
     },
-    [later]
+    [later],
   );
 
   const [notice, setNotice] = useState("");
@@ -279,7 +194,7 @@ export function Game({
       setNotice(text);
       later(() => noticeKey.current === key && setNotice(""), NOTICE_SECONDS);
     },
-    [later]
+    [later],
   );
   const [toast, setToast] = useState("");
   const toastKey = useRef(0);
@@ -290,7 +205,7 @@ export function Game({
       setToast(text);
       later(() => toastKey.current === key && setToast(""), NOTICE_SECONDS);
     },
-    [later]
+    [later],
   );
 
   // ---- the phone ----------------------------------------------------------------------------
@@ -303,9 +218,7 @@ export function Game({
   const [crew, setCrew] = useState<Crew | null>(null);
   const [crewBusy, setCrewBusy] = useState(false);
   const refreshCrew = useCallback(() => {
-    fetchCrew(player.id)
-      .then(setCrew)
-      .catch(() => {}); // the bar is a reminder: it stays as it was until the next news
+    fetchCrew(player.id).then(setCrew).catch(() => {}); // the bar is a reminder: it stays as it was until the next news
   }, [player.id]);
   useEffect(refreshCrew, [refreshCrew]);
   // A friend took a ride and this player rode along: set by the ride code further down.
@@ -321,74 +234,40 @@ export function Game({
         setUnread((count) => count + 1);
         setArrivals((count) => count + 1);
         if (event.kind === "money") {
-          flash(
-            `@${event.name} sent you ₦${(event.amount ?? 0).toLocaleString()}.${
-              event.text ? ` "${event.text}"` : ""
-            }`
-          );
+          flash(`@${event.name} sent you ₦${(event.amount ?? 0).toLocaleString()}.${event.text ? ` "${event.text}"` : ""}`);
           // The bank is asked what the balance is now, so it is never counted twice.
-          fetchWallet(player.id, 1)
-            .then((wallet) => setMoney(wallet.money))
-            .catch(() => {});
+          fetchWallet(player.id, 1).then((wallet) => setMoney(wallet.money)).catch(() => {});
         } else {
-          flash(
-            `Message from @${event.name}: ${
-              event.text.length > 70
-                ? `${event.text.slice(0, 70)}…`
-                : event.text
-            }`
-          );
+          flash(`Message from @${event.name}: ${event.text.length > 70 ? `${event.text.slice(0, 70)}…` : event.text}`);
         }
       } else if (event.type === "event" && event.kind === "vip") {
         shout(`@${event.name} brought you into their VIP booth!`);
-        fetchClub(player.id)
-          .then(setClub)
-          .catch(() => {});
+        fetchClub(player.id).then(setClub).catch(() => {});
       } else if (event.type === "event" && event.kind === "saved") {
         setArrivals((count) => count + 1);
-        flash(
-          `@${event.name} saved your number. Save theirs in your phone and you are friends.`
-        );
+        flash(`@${event.name} saved your number. Save theirs in your phone and you are friends.`);
       } else if (event.type === "crew") {
         refreshCrew();
         setArrivals((count) => count + 1);
         if (event.kind === "invite") return; // the invite card itself says so
-        if (event.kind === "joined")
-          shout(`@${event.name} is rolling with you now!`);
+        if (event.kind === "joined") shout(`@${event.name} is rolling with you now!`);
         else if (event.kind === "left") flash(`@${event.name} left the crew.`);
-        else if (event.kind === "declined")
-          flash(`@${event.name} said not now.`);
-        else if (event.kind === "behind")
-          flash(
-            `@${event.name} took a ride, but you stayed behind: ${
-              event.text ?? ""
-            }`
-          );
-        else if (event.kind === "ride" && event.trip)
-          rideAlong.current(event.trip, event.name);
+        else if (event.kind === "declined") flash(`@${event.name} said not now.`);
+        else if (event.kind === "behind") flash(`@${event.name} took a ride, but you stayed behind: ${event.text ?? ""}`);
+        else if (event.kind === "ride" && event.trip) rideAlong.current(event.trip, event.name);
       }
     },
-    [flash, hear, player.id, refreshCrew, shout, voice]
+    [flash, hear, player.id, refreshCrew, shout, voice],
   );
 
-  const {
-    playersRef,
-    remotes,
-    parked,
-    connected,
-    sendMove,
-    sendPlace,
-    takeServerPosition,
-    say,
-    signal,
-  } = useWorldSocket(player.id, onEvent);
+  const { playersRef, remotes, parked, connected, sendMove, sendPlace, takeServerPosition, say, signal } = useWorldSocket(player.id, onEvent);
   useEffect(() => {
     signalOut.current = signal;
   }, [signal]);
 
   const [options, setOptions] = useState<LookOptions | null>(null);
-  const [look, setLook] = useState<Look | null>(null); // what is saved on the server
-  const [draft, setDraft] = useState<Look | null>(null); // what the creator is previewing
+  const [look, setLook] = useState<Look | null>(null);     // what is saved on the server
+  const [draft, setDraft] = useState<Look | null>(null);   // what the creator is previewing
   const [lookLoaded, setLookLoaded] = useState(false);
   const [firstTime, setFirstTime] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -401,29 +280,21 @@ export function Game({
   const [story, setStory] = useState<StoryState | null>(null);
   const [home, setHome] = useState<Home | null>(null);
   const [scene, setScene] = useState<Scene>({ kind: "street" });
-  const [spawn, setSpawn] = useState<Spawn>({
-    x: player.pos_x,
-    z: player.pos_z,
-    key: 0,
-  });
+  const [spawn, setSpawn] = useState<Spawn>({ x: player.pos_x, z: player.pos_z, key: 0 });
   const [busy, setBusy] = useState(false);
   const streetSpot = useRef({ x: player.pos_x, z: player.pos_z }); // where to come back out to
 
-  const [held, setHeld] = useState(0); // touts holding the player
+  const [held, setHeld] = useState(0);                         // touts holding the player
   const [nearSeller, setNearSeller] = useState<Seller | null>(null);
   const [shop, setShop] = useState<OpenShop | null>(null);
   const [ride, setRide] = useState<Ride | null>(null);
-  const nextDistrict = useRef<string | null>(null); // the district a ride is going to, if it is another one
-  const arrival = useRef({ x: 0, z: 0 }); // where the ride puts them down
-  const rideNews = useRef<string[]>([]); // things that came due on the way
+  const nextDistrict = useRef<string | null>(null);                 // the district a ride is going to, if it is another one
+  const arrival = useRef({ x: 0, z: 0 });                           // where the ride puts them down
+  const rideNews = useRef<string[]>([]);                            // things that came due on the way
 
   // The city map.
   const [mapOpen, setMapOpen] = useState(false);
-  const [mapHere, setMapHere] = useState({
-    district: FIRST_DISTRICT,
-    x: 0,
-    z: 0,
-  });
+  const [mapHere, setMapHere] = useState({ district: FIRST_DISTRICT, x: 0, z: 0 });
   const [city, setCity] = useState<City | null>(null);
   const [cityError, setCityError] = useState("");
   const [allDistricts, setAllDistricts] = useState<DistrictData[]>([]);
@@ -432,7 +303,7 @@ export function Game({
   const [goProblem, setGoProblem] = useState("");
   const [heading, setHeading] = useState<Heading | null>(null);
   const [headingMetres, setHeadingMetres] = useState<number | null>(null);
-  const [nearDoor, setNearDoor] = useState<Door | null>(null); // a door or a spot the player is standing at
+  const [nearDoor, setNearDoor] = useState<Door | null>(null);      // a door or a spot the player is standing at
 
   // Building and arranging the house, as in The Sims.
   const [decorating, setDecorating] = useState(false);
@@ -445,6 +316,9 @@ export function Game({
   const [clubBusy, setClubBusy] = useState(false);
   const [clubError, setClubError] = useState("");
   const [musicOn, setMusicOn] = useState(false);
+  // Music on the street (public/audio/street.mp3): on unless the player turned it off.
+  const streetMusic = useMemo(() => new StreetMusic(), []);
+  const [streetSound, setStreetSound] = useState(streetMusicWanted);
   const [photo, setPhoto] = useState(false);
   const music = useMemo(() => new ClubMusic(), []);
 
@@ -453,9 +327,7 @@ export function Game({
   const [special, setSpecial] = useState<Special | null>(null);
   const [wardrobeOpen, setWardrobeOpen] = useState(false);
   const [storyOpen2, setStoryOpen2] = useState<Special | null>(null);
-  const [scare, setScare] = useState<{ scare: Scare; key: number } | null>(
-    null
-  );
+  const [scare, setScare] = useState<{ scare: Scare; key: number } | null>(null);
   const [policeStop, setPoliceStop] = useState<PoliceStop | null>(null);
   // Cars: what the player owns, the keys, the dealership's sheet, and the trip at the wheel.
   const [cars, setCars] = useState<Cars | null>(null);
@@ -465,6 +337,10 @@ export function Game({
   const [driving, setDriving] = useState<Driving | null>(null);
   const [carBusy, setCarBusy] = useState(false);
   const [nearCar, setNearCar] = useState(false);
+  // ---- jobs: a food order being carried, and the daily bonus ----------------------------
+  const [delivery, setDelivery] = useState<Delivery | null>(null);
+  const [atDoor, setAtDoor] = useState(false);
+  const [jobBusy, setJobBusy] = useState(false);
   const tripCount = useRef(0);
   const stopping = useRef(false);
   const haunt = useMemo(() => new HauntSound(), []);
@@ -472,45 +348,25 @@ export function Game({
   const customising = draft !== null;
   const indoors = scene.kind !== "street";
   /** Places where players see and hear each other: the street and the club. A house and the gym are private. */
-  const shared =
-    scene.kind === "street" || scene.kind === "club" || scene.kind === "venue";
+  const shared = scene.kind === "street" || scene.kind === "club" || scene.kind === "venue";
   const venue = scene.kind === "venue" ? VENUES[scene.id] : null;
   const storyOpen = story !== null && !story.done && lookLoaded && !customising;
   const student = story?.result?.path === "student";
   const inHostel = student && HOSTEL_ROOMS.includes(story?.result?.home ?? "");
 
   // Walls, trees and the district edge, worked out once per map.
-  const streetCollider = useMemo(
-    () => (district ? buildCollider(district) : null),
-    [district]
-  );
+  const streetCollider = useMemo(() => (district ? buildCollider(district) : null), [district]);
   // Indoors: the walls, the stairs and the furniture on the floor being shown.
   const homeFloor = scene.kind === "home" ? scene.floor : 0;
   // At home the best cars get the car park's spaces.
-  const homeCars = useMemo(
-    () => [...(cars?.cars ?? [])].sort((a, b) => b.paid - a.paid).map(carLook),
-    [cars]
-  );
+  const homeCars = useMemo(() => [...(cars?.cars ?? [])].sort((a, b) => b.paid - a.paid).map(carLook), [cars]);
   const indoorCollider = useMemo(
     () => {
       if (!home) return null;
-      const base = homeCollider(
-        home.plan,
-        homeFloor,
-        home.items,
-        home.catalogue,
-        home.rooms,
-        serverNow()
-      );
-      if (homeFloor !== 0 || !home.plan.buildable || homeCars.length === 0)
-        return base;
+      const base = homeCollider(home.plan, homeFloor, home.items, home.catalogue, home.rooms, serverNow());
+      if (homeFloor !== 0 || !home.plan.buildable || homeCars.length === 0) return base;
       // The cars in the car park are walked round.
-      const boxes = carParkSpots(
-        home.plan.lot,
-        home.plan.cell,
-        homeCars.length,
-        home.rooms
-      ).map((spot, i) => {
+      const boxes = carParkSpots(home.plan.lot, home.plan.cell, homeCars.length, home.rooms).map((spot, i) => {
         const shape = carParts(readCarLook(homeCars[i]).model);
         return carBox(spot.x, spot.z, spot.rot, shape.length, shape.width);
       });
@@ -518,19 +374,14 @@ export function Game({
     },
     // `roomsDone` brings in a room the workers have just finished.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [home, homeFloor, roomsDone, homeCars]
+    [home, homeFloor, roomsDone, homeCars],
   );
   // When the room being built will be finished, look again.
   useEffect(() => {
     if (!home) return;
-    const waiting = home.rooms
-      .filter((room) => !isDone(room))
-      .map((room) => room.ready_ms - serverNow());
+    const waiting = home.rooms.filter((room) => !isDone(room)).map((room) => room.ready_ms - serverNow());
     if (waiting.length === 0) return;
-    const timer = window.setTimeout(
-      () => setRoomsDone((value) => value + 1),
-      Math.max(500, Math.min(...waiting) + 300)
-    );
+    const timer = window.setTimeout(() => setRoomsDone((value) => value + 1), Math.max(500, Math.min(...waiting) + 300));
     return () => window.clearTimeout(timer);
   }, [home, roomsDone]);
   // The club: the rope across the way in to VIP is open to those with a booth. The server
@@ -546,87 +397,53 @@ export function Game({
   }, [club, vipSeconds]);
   const inVip = vipUntil > 0;
   const danceCollider = useMemo(() => clubCollider(inVip), [inVip]);
-  const roomCollider = useMemo(
-    () => (venue ? venueCollider(venue) : null),
-    [venue]
-  );
+  const roomCollider = useMemo(() => (venue ? venueCollider(venue) : null), [venue]);
 
   // The sellers and touts of this district. Street sense decides how hard they press.
   const streetSense = story?.result?.street ?? 1;
-  const crowd = useMemo(
-    () => (district ? createCrowd(district, streetSense) : null),
-    [district, streetSense]
-  );
+  const crowd = useMemo(() => (district ? createCrowd(district, streetSense) : null), [district, streetSense]);
 
   // The walking crowd and the traffic. The player cannot walk through a moving bus,
   // so the vehicles are added to what the player bumps into.
-  const touchScreen = useMemo(
-    () => window.matchMedia("(pointer: coarse)").matches,
-    []
-  );
+  const touchScreen = useMemo(() => window.matchMedia("(pointer: coarse)").matches, []);
   const life = useMemo(
-    () =>
-      district
-        ? createStreetLife(district, touchScreen ? SMALL_SCREEN : {})
-        : null,
-    [district, touchScreen]
+    () => (district ? createStreetLife(district, touchScreen ? SMALL_SCREEN : {}) : null),
+    [district, touchScreen],
   );
   // On top of both goes the footbridge: once up on it, nothing on the street can touch the player.
   // The cars standing on the street are solid too. Read through a ref, so cars coming and
   // going do not rebuild the collider.
   const parkedRef = useRef(parked);
   parkedRef.current = parked;
-  const parkedBoxes = useCallback(
-    (): Box[] =>
-      parkedRef.current.map((car) => {
-        const shape = carParts(readCarLook(car.look).model);
-        return carBox(car.x, car.z, car.rot, shape.length, shape.width);
-      }),
-    []
-  );
+  const parkedBoxes = useCallback((): Box[] => parkedRef.current.map((car) => {
+    const shape = carParts(readCarLook(car.look).model);
+    return carBox(car.x, car.z, car.rot, shape.length, shape.width);
+  }), []);
   // What a car being driven bumps into besides the street: the parked cars and the traffic.
   const roadBoxes = useCallback((): Box[] => {
     const boxes = parkedBoxes();
-    for (const vehicle of life?.vehicles ?? [])
-      if (vehicle.active) boxes.push(vehicle);
+    for (const vehicle of life?.vehicles ?? []) if (vehicle.active) boxes.push(vehicle);
     return boxes;
   }, [life, parkedBoxes]);
   const outdoorCollider = useMemo(() => {
     if (!district || !streetCollider) return null;
-    return withFootbridges(
-      withCars(
-        life ? trafficCollider(streetCollider, life) : streetCollider,
-        parkedBoxes
-      ),
-      district
-    );
+    return withFootbridges(withCars(life ? trafficCollider(streetCollider, life) : streetCollider, parkedBoxes), district);
   }, [district, streetCollider, life, parkedBoxes]);
   const collider =
     scene.kind === "arena"
       ? GYM_COLLIDER
       : scene.kind === "club"
-      ? danceCollider
-      : scene.kind === "venue"
-      ? roomCollider
-      : scene.kind === "home"
-      ? indoorCollider
-      : outdoorCollider;
+        ? danceCollider
+        : scene.kind === "venue"
+          ? roomCollider
+          : scene.kind === "home"
+            ? indoorCollider
+            : outdoorCollider;
 
   // Other players are drawn up on a footbridge, or on the club's platform, when they are standing where one is.
-  const walkways = useMemo(
-    () => (district ? buildWalkways(district) : []),
-    [district]
-  );
-  const streetHeight = useCallback(
-    (x: number, z: number) => walkwayHeight(walkways, x, z) ?? 0,
-    [walkways]
-  );
-  const heightAt =
-    scene.kind === "club"
-      ? clubFloorAt
-      : scene.kind === "venue"
-      ? flatFloor
-      : streetHeight;
+  const walkways = useMemo(() => (district ? buildWalkways(district) : []), [district]);
+  const streetHeight = useCallback((x: number, z: number) => walkwayHeight(walkways, x, z) ?? 0, [walkways]);
+  const heightAt = scene.kind === "club" ? clubFloorAt : scene.kind === "venue" ? flatFloor : streetHeight;
 
   useEffect(() => {
     let cancelled = false;
@@ -637,10 +454,7 @@ export function Game({
       })
       .catch((error: unknown) => {
         console.error("Could not load the map:", error);
-        if (!cancelled)
-          setMapError(
-            error instanceof Error ? error.message : "The map did not load."
-          );
+        if (!cancelled) setMapError(error instanceof Error ? error.message : "The map did not load.");
       });
 
     return () => {
@@ -716,9 +530,7 @@ export function Game({
       setLook(await saveLook(player.id, draft));
       closeCreator();
     } catch (error) {
-      setSaveError(
-        error instanceof Error ? error.message : "Could not save your look."
-      );
+      setSaveError(error instanceof Error ? error.message : "Could not save your look.");
     } finally {
       setSaving(false);
     }
@@ -732,15 +544,8 @@ export function Game({
   }, []);
 
   // The fight club: its state, and the order things happen in a fight.
-  const placeInGym = useCallback(
-    (spot: { x: number; z: number }) => appearAt(spot.x, spot.z),
-    [appearAt]
-  );
-  const arena = useFightClub(player.id, {
-    onMoney: setMoney,
-    onPlace: placeInGym,
-    ringside: RINGSIDE,
-  });
+  const placeInGym = useCallback((spot: { x: number; z: number }) => appearAt(spot.x, spot.z), [appearAt]);
+  const arena = useFightClub(player.id, { onMoney: setMoney, onPlace: placeInGym, ringside: RINGSIDE });
 
   // The player's needs and clock, and whatever they are doing: at home, in the club, out in the city.
   const homeLife = useHomeLife(player.id, {
@@ -754,13 +559,9 @@ export function Game({
       appearAt(spot.x, spot.z);
     },
     onDone: (finished) => {
-      if (finished.collapsed)
-        shout(`${player.username} collapsed from exhaustion!`);
+      if (finished.collapsed) shout(`${player.username} collapsed from exhaustion!`);
       // Renting a room changes where home is: ask the story again, it knows.
-      if (finished.lines.some((line) => line.startsWith("You moved into")))
-        fetchStory(player.id)
-          .then(setStory)
-          .catch(() => {});
+      if (finished.lines.some((line) => line.startsWith("You moved into"))) fetchStory(player.id).then(setStory).catch(() => {});
     },
   });
   const loadLife = homeLife.load;
@@ -770,13 +571,7 @@ export function Game({
 
   // Out on the street, the thing a player can use is whatever spot they are standing at.
   const setNearThing = homeLife.setNear;
-  const spotHere = useMemo(
-    () =>
-      nearDoor && nearDoor.id.startsWith("spot:")
-        ? streetThing(nearDoor)
-        : null,
-    [nearDoor]
-  );
+  const spotHere = useMemo(() => (nearDoor && nearDoor.id.startsWith("spot:") ? streetThing(nearDoor) : null), [nearDoor]);
   useEffect(() => {
     if (scene.kind === "street") setNearThing(spotHere);
   }, [scene.kind, setNearThing, spotHere]);
@@ -789,9 +584,7 @@ export function Game({
     try {
       // Fetched on every visit, so the house is always as the server has it.
       const loaded = await fetchHome(player.id);
-      streetSpot.current = door
-        ? { x: door.x, z: door.z }
-        : { x: playerFocus.x, z: playerFocus.z };
+      streetSpot.current = door ? { x: door.x, z: door.z } : { x: playerFocus.x, z: playerFocus.z };
       const inside = doorSpot(loaded.plan);
       homeLife.leave(); // whatever they were standing at outside is not in here
       syncClock(loaded.now_ms);
@@ -804,9 +597,7 @@ export function Game({
       sendPlace("home");
       void loadLife(); // needs may have moved on while they were out
     } catch (error) {
-      flash(
-        error instanceof Error ? error.message : "Could not open your house."
-      );
+      flash(error instanceof Error ? error.message : "Could not open your house.");
     } finally {
       setBusy(false);
     }
@@ -814,19 +605,9 @@ export function Game({
 
   const finishStory = (result: StoryResult) => {
     setMoney(result.cash);
-    setStory({
-      done: true,
-      questions: [],
-      student_questions: [],
-      result,
-      money: result.cash,
-    });
+    setStory({ done: true, questions: [], student_questions: [], result, money: result.cash });
     // A student's life starts in their room. The server has already put them at the hostel door.
-    if (
-      result.path === "student" &&
-      result.door_x !== null &&
-      result.door_z !== null
-    ) {
+    if (result.path === "student" && result.door_x !== null && result.door_z !== null) {
       void goHome({ x: result.door_x, z: result.door_z });
     }
   };
@@ -836,12 +617,7 @@ export function Game({
     if (busy || homeLife.hold !== null) return;
     if (door.id === "hostel") {
       if (inHostel) void goHome(door);
-      else
-        flash(
-          student
-            ? "You moved out of the hostel. Press Home to go to your room."
-            : "Only the students who stay here can go in."
-        );
+      else flash(student ? "You moved out of the hostel. Press Home to go to your room." : "Only the students who stay here can go in.");
       return;
     }
     if (isVenue(door.id)) {
@@ -849,11 +625,11 @@ export function Game({
       return;
     }
     if (door.id !== "arena" && door.id !== "club") {
-      // A door this copy of the game does not know: the map is newer than the page.
+      // A door the map knows about but this copy of the game does not: the map came fresh
+      // from the server, the game is an older copy still open in this tab.
       flash(`${door.text} is new. Refresh the page to go in.`);
       return;
     }
-
     setBusy(true);
     setNotice("");
     try {
@@ -881,11 +657,7 @@ export function Game({
       setMusicOn(true);
       void loadLife();
     } catch (error) {
-      flash(
-        error instanceof Error
-          ? error.message
-          : `${door.text} is closed just now. Try again.`
-      );
+      flash(error instanceof Error ? error.message : `${door.text} is closed just now. Try again.`);
     } finally {
       setBusy(false);
     }
@@ -905,9 +677,7 @@ export function Game({
     setMusicOn(!!layout.music);
     if (layout.kind === "haunted") {
       haunt.start();
-      flash(
-        "The Old Residency. Nobody has lived here since 1960. Find the way out at the back."
-      );
+      flash("The Old Residency. Nobody has lived here since 1960. Find the way out at the back.");
     }
     void loadLife();
   };
@@ -934,6 +704,10 @@ export function Game({
     sendPlace("street");
   };
   useEffect(() => () => music.stop(), [music]);
+  useEffect(() => {
+    streetMusic.want(streetSound && scene.kind === "street");
+  }, [streetMusic, streetSound, scene.kind]);
+  useEffect(() => () => streetMusic.stop(), [streetMusic]);
   useEffect(() => () => haunt.stop(), [haunt]);
 
   // ---- cars ------------------------------------------------------------------------------------
@@ -951,6 +725,83 @@ export function Game({
     }
   }, [player.id]);
 
+  // Coming in: any order still being carried, and today's bonus if it has not been collected.
+  useEffect(() => {
+    let live = true;
+    fetchJobs(player.id)
+      .then(async (jobs) => {
+        if (!live) return;
+        setDelivery(jobs.delivery);
+        if (!jobs.bonus_ready) return;
+        const bonus = await claimBonus(player.id);
+        if (!live) return;
+        setMoney(bonus.money);
+        flash(bonus.message);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [player.id, flash]);
+
+  // Standing at the door the order goes to: the "Hand over" button lights up. (The server
+  // checks again, with where the live world has them.)
+  useEffect(() => {
+    if (!delivery || scene.kind !== "street" || district?.id !== delivery.district) {
+      setAtDoor(false);
+      return;
+    }
+    const check = () => setAtDoor(Math.hypot(playerFocus.x - delivery.x, playerFocus.z - delivery.z) < 12);
+    check();
+    const timer = window.setInterval(check, 300);
+    return () => window.clearInterval(timer);
+  }, [delivery, scene.kind, district?.id]);
+
+  const startDelivery = async () => {
+    if (jobBusy) return;
+    if (delivery) {
+      flash(`You are already carrying an order to ${delivery.to_name}.`);
+      return;
+    }
+    setJobBusy(true);
+    try {
+      const taken = await takeDelivery(player.id);
+      setDelivery(taken);
+      flash(`Take the ${taken.dish} to ${taken.to_name}. Walk, drive or take a cab: the clock is running.`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "No orders just now.");
+    } finally {
+      setJobBusy(false);
+    }
+  };
+  const finishDelivery = async () => {
+    if (jobBusy) return;
+    setJobBusy(true);
+    try {
+      const done = await handOver(player.id);
+      setMoney(done.money);
+      setDelivery(null);
+      shout(done.message);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not hand it over.");
+    } finally {
+      setJobBusy(false);
+    }
+  };
+  const giveUpDelivery = async () => {
+    if (jobBusy) return;
+    setJobBusy(true);
+    try {
+      await dropDelivery(player.id);
+      setDelivery(null);
+      flash("You dropped the order. Pick up another at Mimeals Cuisine.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not drop it.");
+    } finally {
+      setJobBusy(false);
+    }
+  };
+
   // Standing by their own car: the "Get in" button shows.
   useEffect(() => {
     if (!myParked || driving || scene.kind !== "street") {
@@ -958,10 +809,7 @@ export function Game({
       return;
     }
     // Within reach of its doors: its own half-length and a step or two. (The server allows 6 m.)
-    const check = () =>
-      setNearCar(
-        Math.hypot(playerFocus.x - myParked.x, playerFocus.z - myParked.z) < 5
-      );
+    const check = () => setNearCar(Math.hypot(playerFocus.x - myParked.x, playerFocus.z - myParked.z) < 5);
     check();
     const timer = window.setInterval(check, 250);
     return () => window.clearInterval(timer);
@@ -974,55 +822,29 @@ export function Game({
   const spotForCar = (model: string): { x: number; z: number; rot: number } => {
     const shape = carParts(model);
     const yaw = cameraView.yaw;
-    const fx = -Math.sin(yaw),
-      fz = -Math.cos(yaw); // the way the camera looks
-    const rx = -fz,
-      rz = fx; // and to the right of that
-    const px = playerFocus.x,
-      pz = playerFocus.z;
-    const r = shape.width / 2,
-      half = shape.wheelbase / 2;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // the way the camera looks
+    const rx = -fz, rz = fx;                           // and to the right of that
+    const px = playerFocus.x, pz = playerFocus.z;
+    const r = shape.width / 2, half = shape.wheelbase / 2;
     const probe = { x: 0, z: 0 };
     const others = roadBoxes();
     // Can a car-wide circle get from (ax, az) to (bx, bz) without meeting anything?
     const open = (ax: number, az: number, bx: number, bz: number) => {
       streetCollider?.resolve(ax, az, bx, bz, probe, r);
-      return (
-        Math.hypot(probe.x - bx, probe.z - bz) < 0.05 &&
-        !others.some((box) => touchesBox(box, bx, bz, r))
-      );
+      return Math.hypot(probe.x - bx, probe.z - bz) < 0.05 && !others.some((box) => touchesBox(box, bx, bz, r));
     };
     const forward = Math.atan2(fx, fz);
     let fallback: { x: number; z: number; rot: number } | null = null;
-    for (const [side, ahead] of [
-      [3.4, 1.5],
-      [-3.4, 1.5],
-      [3.4, -2.5],
-      [-3.4, -2.5],
-      [0, 6.5],
-      [0, -6.5],
-      [5.8, 3],
-      [-5.8, 3],
-    ]) {
-      const x = px + rx * side + fx * ahead,
-        z = pz + rz * side + fz * ahead;
-      for (const heading of [
-        forward,
-        forward + Math.PI / 2,
-        forward - Math.PI / 2,
-        forward + Math.PI,
-      ]) {
-        const hx = Math.sin(heading),
-          hz = Math.cos(heading);
-        const front = { x: x + hx * half, z: z + hz * half },
-          back = { x: x - hx * half, z: z - hz * half };
+    for (const [side, ahead] of [[3.4, 1.5], [-3.4, 1.5], [3.4, -2.5], [-3.4, -2.5], [0, 6.5], [0, -6.5], [5.8, 3], [-5.8, 3]]) {
+      const x = px + rx * side + fx * ahead, z = pz + rz * side + fz * ahead;
+      for (const heading of [forward, forward + Math.PI / 2, forward - Math.PI / 2, forward + Math.PI]) {
+        const hx = Math.sin(heading), hz = Math.cos(heading);
+        const front = { x: x + hx * half, z: z + hz * half }, back = { x: x - hx * half, z: z - hz * half };
         // Room for the car: it could be slid there from where the player stands.
-        if (!open(px, pz, front.x, front.z) || !open(px, pz, back.x, back.z))
-          break;
+        if (!open(px, pz, front.x, front.z) || !open(px, pz, back.x, back.z)) break;
         fallback ??= { x, z, rot: heading };
         // And a clear run of a few car lengths in front of it.
-        if (open(front.x, front.z, front.x + hx * 8, front.z + hz * 8))
-          return { x, z, rot: heading };
+        if (open(front.x, front.z, front.x + hx * 8, front.z + hz * 8)) return { x, z, rot: heading };
       }
     }
     return fallback ?? { x: px + rx * 3.4, z: pz + rz * 3.4, rot: forward };
@@ -1037,11 +859,7 @@ export function Game({
       setKeysOpen(false);
       shout("Your driver has brought the car. Walk up to it and get in.");
     } catch (error) {
-      flash(
-        error instanceof Error
-          ? error.message
-          : "The driver could not bring it."
-      );
+      flash(error instanceof Error ? error.message : "The driver could not bring it.");
     } finally {
       setCarBusy(false);
     }
@@ -1053,11 +871,7 @@ export function Game({
     try {
       setCars(await sendCarHome(player.id));
     } catch (error) {
-      flash(
-        error instanceof Error
-          ? error.message
-          : "The driver could not take it home."
-      );
+      flash(error instanceof Error ? error.message : "The driver could not take it home.");
     } finally {
       setCarBusy(false);
     }
@@ -1070,8 +884,7 @@ export function Game({
       // Which car is standing there: the server says, in what it knows of the player's cars.
       const known = (cars?.parked ? cars : null) ?? (await loadCars());
       const carId = known?.parked?.car_id;
-      if (!carId)
-        throw new Error("That car is not here. Ask your driver to bring it.");
+      if (!carId) throw new Error("That car is not here. Ask your driver to bring it.");
       const done = await getIn(player.id, carId);
       const car = done.cars.find((entry) => entry.id === carId);
       if (!car) throw new Error("That car is not yours.");
@@ -1134,7 +947,7 @@ export function Game({
         haunt.scream();
       }
     },
-    [haunt]
+    [haunt],
   );
 
   /** Walking past a checkpoint: the officers call the player over, if the server agrees they are there. */
@@ -1149,7 +962,7 @@ export function Game({
           stopping.current = false;
         });
     },
-    [player.id]
+    [player.id],
   );
 
   const takeStairs = (change: FloorChange) => {
@@ -1165,11 +978,7 @@ export function Game({
         setCity(loaded);
         setMoney(loaded.money);
       })
-      .catch((error: unknown) =>
-        setCityError(
-          error instanceof Error ? error.message : "The map did not open."
-        )
-      );
+      .catch((error: unknown) => setCityError(error instanceof Error ? error.message : "The map did not open."));
   }, [player.id]);
 
   const openMap = () => {
@@ -1192,13 +1001,7 @@ export function Game({
     // The map draws a small model of every district. Each one appears when its file arrives.
     for (const id of Object.keys(DISTRICT_AT)) {
       loadDistrict(id)
-        .then((loaded) =>
-          setAllDistricts((current) =>
-            current.some((known) => known.id === loaded.id)
-              ? current
-              : [...current, loaded]
-          )
-        )
+        .then((loaded) => setAllDistricts((current) => (current.some((known) => known.id === loaded.id) ? current : [...current, loaded])))
         .catch(() => {}); // a district that will not download is simply not drawn
     }
   };
@@ -1215,9 +1018,7 @@ export function Game({
     const next = nextDistrict.current;
     try {
       // The new district has been downloading during the ride. If that failed, it is asked for once more.
-      const loaded = next
-        ? await loadDistrict(next).catch(() => loadDistrict(next))
-        : null;
+      const loaded = next ? await loadDistrict(next).catch(() => loadDistrict(next)) : null;
       setHeld(0);
       setNearSeller(null);
       setNearDoor(null);
@@ -1227,9 +1028,7 @@ export function Game({
       if (rideNews.current.length > 0) flash(rideNews.current.join(" "));
       void loadLife(); // the ride took time off their day
     } catch (error) {
-      setMapError(
-        error instanceof Error ? error.message : "The map did not load."
-      );
+      setMapError(error instanceof Error ? error.message : "The map did not load.");
     } finally {
       nextDistrict.current = null;
       rideNews.current = [];
@@ -1245,33 +1044,14 @@ export function Game({
     arrival.current = { x: trip.x, z: trip.z };
     rideNews.current = trip.news;
     nextDistrict.current = trip.district === district.id ? null : trip.district;
-    if (nextDistrict.current)
-      loadDistrict(nextDistrict.current).catch(() => {}); // starts the download now; a failure is dealt with on arriving
+    if (nextDistrict.current) loadDistrict(nextDistrict.current).catch(() => {}); // starts the download now; a failure is dealt with on arriving
     // A bus only goes as far as the bus stop: the guide shows the way from there.
-    setHeading(
-      trip.walk > ARRIVED
-        ? {
-            name: trip.name,
-            district: trip.district,
-            x: trip.to_x,
-            z: trip.to_z,
-          }
-        : null
-    );
+    setHeading(trip.walk > ARRIVED ? { name: trip.name, district: trip.district, x: trip.to_x, z: trip.to_z } : null);
     setHeadingMetres(trip.walk > ARRIVED ? trip.walk : null);
     setMapOpen(false);
     setPickedPlace(null);
-    const mode: RideKind =
-      trip.mode === "keke" || trip.mode === "bike" || trip.mode === "cab"
-        ? trip.mode
-        : "bus";
-    setRide({
-      from: district.name,
-      to: mode === "bus" ? trip.district_name : trip.name,
-      fare: trip.fare,
-      mode,
-      seconds: trip.seconds,
-    });
+    const mode: RideKind = trip.mode === "keke" || trip.mode === "bike" || trip.mode === "cab" ? trip.mode : "bus";
+    setRide({ from: district.name, to: mode === "bus" ? trip.district_name : trip.name, fare: trip.fare, mode, seconds: trip.seconds });
   };
   // A friend in the crew took a ride: this player was on the same street and went too.
   rideAlong.current = (trip, by) => {
@@ -1293,14 +1073,11 @@ export function Game({
         setPhoneOpen(false);
         setMapOpen(false);
         arrival.current = { x: joined.x, z: joined.z };
-        nextDistrict.current =
-          joined.district === district.id ? null : joined.district;
+        nextDistrict.current = joined.district === district.id ? null : joined.district;
         setHeading(null);
         await arrive();
       }
-      shout(
-        joined.note || "You are rolling together now. Talk: they can hear you."
-      );
+      shout(joined.note || "You are rolling together now. Talk: they can hear you.");
     } catch (error) {
       flash(error instanceof Error ? error.message : "Could not join them.");
       refreshCrew();
@@ -1325,12 +1102,7 @@ export function Game({
     if (going || !district) return;
     if (option.mode === "trek") {
       // Walking costs nothing and the server is not asked: they just walk, and an arrow shows the way.
-      setHeading({
-        name: place.name,
-        district: place.district,
-        x: place.x,
-        z: place.z,
-      });
+      setHeading({ name: place.name, district: place.district, x: place.x, z: place.z });
       setHeadingMetres(place.metres);
       closeMap();
       flash(`Follow the arrow to ${place.name}.`);
@@ -1342,10 +1114,7 @@ export function Game({
       // The fare is paid and the server has put the player down at the other end.
       const trip = await goTo(player.id, place.id, option.mode);
       startRide(trip);
-      if (trip.crew && trip.crew.length > 0)
-        flash(
-          `${trip.crew.map((name) => `@${name}`).join(", ")} rode with you.`
-        );
+      if (trip.crew && trip.crew.length > 0) flash(`${trip.crew.map((name) => `@${name}`).join(", ")} rode with you.`);
     } catch (error) {
       // Refused, or the answer was lost on the way back. If it was lost the ride may still
       // have been paid for, so the server is asked where it has the player now.
@@ -1353,15 +1122,12 @@ export function Game({
         const now = await fetchCity(player.id);
         setCity(now);
         setMoney(now.money);
-        const moved =
-          now.district !== district.id ||
-          Math.hypot(now.x - mapHere.x, now.z - mapHere.z) > 20;
+        const moved = now.district !== district.id || Math.hypot(now.x - mapHere.x, now.z - mapHere.z) > 20;
         if (now.on_street && moved) {
           // It was paid for: go where the server says they are, without the picture of the ride.
           homeLife.leave();
           arrival.current = { x: now.x, z: now.z };
-          nextDistrict.current =
-            now.district === district.id ? null : now.district;
+          nextDistrict.current = now.district === district.id ? null : now.district;
           setHeading(null);
           setMapOpen(false);
           setPickedPlace(null);
@@ -1371,11 +1137,7 @@ export function Game({
       } catch {
         // Still no answer from the server: say so below.
       }
-      setGoProblem(
-        error instanceof Error
-          ? error.message
-          : "That ride did not leave. Try again."
-      );
+      setGoProblem(error instanceof Error ? error.message : "That ride did not leave. Try again.");
     } finally {
       setGoing("");
     }
@@ -1394,8 +1156,7 @@ export function Game({
 
   const lookAtGoods = () => {
     const tout = crowd ? holder(crowd) : null;
-    if (tout)
-      setShop({ shopId: tout.shop, seller: "Street seller", fromTout: true });
+    if (tout) setShop({ shopId: tout.shop, seller: "Street seller", fromTout: true });
   };
 
   const closeShop = () => {
@@ -1407,16 +1168,7 @@ export function Game({
   // ---- arranging the house ------------------------------------------------------------------
   const houseChanged = (change: HomeChange) => {
     syncClock(change.now_ms);
-    setHome((current) =>
-      current
-        ? {
-            ...current,
-            items: change.items,
-            money: change.money,
-            rooms: change.rooms ?? current.rooms,
-          }
-        : current
-    );
+    setHome((current) => (current ? { ...current, items: change.items, money: change.money, rooms: change.rooms ?? current.rooms } : current));
     setMoney(change.money);
   };
   const stopDecorating = () => {
@@ -1428,10 +1180,7 @@ export function Game({
     if (!home?.plan.stairs) return;
     const stairs = home.plan.stairs;
     const middle = (stairs.x + stairs.w / 2) * home.plan.cell;
-    const z =
-      floor > 0
-        ? (stairs.z - 1) * home.plan.cell
-        : (stairs.z + stairs.d + 1) * home.plan.cell;
+    const z = floor > 0 ? (stairs.z - 1) * home.plan.cell : (stairs.z + stairs.d + 1) * home.plan.cell;
     takeStairs({ floor, x: middle, z });
   };
 
@@ -1458,9 +1207,7 @@ export function Game({
   useEffect(() => {
     if (!boothOpen) return;
     let cancelled = false;
-    fetchClub(player.id)
-      .then((now) => !cancelled && setClub(now))
-      .catch(() => {});
+    fetchClub(player.id).then((now) => !cancelled && setClub(now)).catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -1473,10 +1220,7 @@ export function Game({
     }, "Could not bring them in.");
   const toggleMusic = () => {
     if (musicOn) music.stop();
-    else
-      music.start(
-        scene.kind === "venue" ? `/audio/${scene.id}.mp3` : undefined
-      );
+    else music.start(scene.kind === "venue" ? `/audio/${scene.id}.mp3` : undefined);
     setMusicOn(!musicOn);
   };
   const takePhoto = () => {
@@ -1492,11 +1236,7 @@ export function Game({
     const now = new Map<string, string>();
     for (const other of remotes) {
       now.set(other.id, other.pose);
-      if (
-        other.pose === "out" &&
-        before.has(other.id) &&
-        before.get(other.id) !== "out"
-      ) {
+      if (other.pose === "out" && before.has(other.id) && before.get(other.id) !== "out") {
         shout(`${other.username} collapsed from exhaustion!`);
       }
     }
@@ -1525,15 +1265,11 @@ export function Game({
         await calls.turnOn();
         flash("Voice is on. Whoever is standing with you can hear you.");
       } catch {
-        flash(
-          "The microphone is blocked. Allow it for this page in your browser, then try again."
-        );
+        flash("The microphone is blocked. Allow it for this page in your browser, then try again.");
       }
     } else if (calls.state === "on") {
       calls.setMuted(true);
-      flash(
-        "Your microphone is muted. You can still hear. Press again to turn voice off."
-      );
+      flash("Your microphone is muted. You can still hear. Press again to turn voice off.");
     } else {
       calls.turnOff();
       setVoiceWith(0);
@@ -1562,90 +1298,59 @@ export function Game({
       const near = [];
       if (shared) {
         for (const other of playersRef.current.values()) {
-          near.push({
-            id: other.id,
-            distance: Math.hypot(
-              other.x - playerFocus.x,
-              other.z - playerFocus.z
-            ),
-          });
+          near.push({ id: other.id, distance: Math.hypot(other.x - playerFocus.x, other.z - playerFocus.z) });
         }
       }
       calls.update(near);
       setVoiceWith(calls.connected);
       const loud = calls.talking();
-      setTalking((current) =>
-        current.size === loud.length && loud.every((id) => current.has(id))
-          ? current
-          : new Set(loud)
-      );
+      setTalking((current) => (current.size === loud.length && loud.every((id) => current.has(id)) ? current : new Set(loud)));
     }, VOICE_EVERY);
     return () => window.clearInterval(timer);
   }, [playersRef, shared, voice, voiceState]);
   useEffect(() => () => voice.turnOff(), [voice]);
 
   const roomPanel = wardrobeOpen || storyOpen2 !== null || policeStop !== null;
-  const panelOpen =
-    shop !== null ||
-    mapOpen ||
-    customising ||
-    storyOpen ||
-    ride !== null ||
-    phoneOpen ||
-    roomPanel ||
-    keysOpen ||
-    dealerCar !== null;
+  const panelOpen = shop !== null || mapOpen || customising || storyOpen || ride !== null || phoneOpen || roomPanel || keysOpen || dealerCar !== null;
   // Stopped at a checkpoint: held where they stand until they are let go.
-  const policeHold = useMemo(
-    () => (policeStop ? holdAt(null, playerFocus.x, playerFocus.z) : null),
-    [policeStop]
-  );
+  const policeHold = useMemo(() => (policeStop ? holdAt(null, playerFocus.x, playerFocus.z) : null), [policeStop]);
   // On the bus the server already has the player at the next stop, so nothing is sent
   // from the street they are leaving. In a house or the gym nothing is sent either.
   const silent = !shared || ride !== null;
 
   // In the ring, at the bag, in the middle of something or passed out, the player is busy:
   // no walking out half way through.
-  const fighting =
-    scene.kind === "arena" && (arena.fight !== null || arena.hold !== null);
+  const fighting = scene.kind === "arena" && (arena.fight !== null || arena.hold !== null);
   const tiedUp = fighting || (scene.kind !== "arena" && homeLife.hold !== null);
   // Their body is doing something only while they dance, sit or lie passed out. The rest
   // of the time the character is told nothing, and loads none of the fighting animations.
-  const posing =
-    Boolean(homeLife.life?.doing?.pose) || homeLife.wakeAt !== null;
+  const posing = Boolean(homeLife.life?.doing?.pose) || homeLife.wakeAt !== null;
   const hold = scene.kind === "arena" ? arena.hold : homeLife.hold;
 
   let placeName = district?.name ?? "";
   if (scene.kind === "arena") placeName = scene.name;
-  if (scene.kind === "club")
-    placeName = (club?.name ?? CLUB.name).toUpperCase();
+  if (scene.kind === "club") placeName = (club?.name ?? CLUB.name).toUpperCase();
   if (venue) placeName = venue.name;
   if (scene.kind === "home" && home) {
-    const level =
-      home.plan.floors.length > 1
-        ? scene.floor > 0
-          ? " · Upstairs"
-          : " · Downstairs"
-        : "";
+    const level = home.plan.floors.length > 1 ? (scene.floor > 0 ? " · Upstairs" : " · Downstairs") : "";
     placeName = `${home.plan.name}${level}`;
   }
 
-  const doorHere =
-    !indoors && nearDoor && !nearDoor.id.startsWith("spot:") ? nearDoor : null;
-  const sayBar =
-    shared && story?.done === true && !customising && !photo && !panelOpen;
+  const doorHere = !indoors && nearDoor && !nearDoor.id.startsWith("spot:") ? nearDoor : null;
+  const sayBar = shared && story?.done === true && !customising && !photo && !panelOpen;
   const overlay = customising || photo || mapOpen;
   // The guide is drawn only on the street of the district the place is in.
-  const guiding =
-    heading !== null &&
-    !mapOpen &&
-    ride === null &&
-    scene.kind === "street" &&
-    district?.id === heading.district;
+  const guiding = heading !== null && !mapOpen && ride === null && scene.kind === "street" && district?.id === heading.district;
 
   return (
-    <div className='game'>
+    <div className="game">
       <style>{`
+        .hud-sound { border: 0; background: rgba(255,255,255,0.14); color: inherit; border-radius: 6px; width: 24px; height: 22px; margin-right: 6px; font-size: 13px; cursor: pointer; padding: 0; vertical-align: middle; }
+        .hud-sound[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
+        .hud-beta { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; background: #f5c400; color: #1a0b24; border-radius: 4px; padding: 1px 4px; vertical-align: middle; }
+        .update-bar { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); display: flex; gap: 10px; align-items: center;
+          background: #1a0b24; color: #fff; border: 1px solid #f5c400; border-radius: 12px; padding: 8px 8px 8px 14px; font: 600 14px/1.3 system-ui, sans-serif; max-width: calc(100vw - 32px); }
+        .update-bar button { background: #f5c400; color: #1a0b24; border: 0; border-radius: 8px; padding: 7px 12px; font-weight: 800; cursor: pointer; }
         .overhead { display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
         .overhead-said { max-width: 200px; width: max-content; padding: 5px 10px; border-radius: 12px; background: #fff; color: #1f2a26;
           font-size: 12px; font-weight: 600; line-height: 1.25; text-align: center; white-space: normal; overflow-wrap: anywhere;
@@ -1667,49 +1372,19 @@ export function Game({
       `}</style>
 
       <Canvas
-        shadows='percentage'
+        shadows="percentage"
         dpr={[1, 1.5]}
-        camera={{
-          position: [player.pos_x, 6, player.pos_z + 9],
-          fov: CAMERA_FOV,
-          near: 0.3,
-          far: 1600,
-        }}
+        camera={{ position: [player.pos_x, 6, player.pos_z + 9], fov: CAMERA_FOV, near: 0.3, far: 1600 }}
       >
         {/* While the city map is open it is all that is drawn: the street comes back when it closes. */}
-        {mapOpen && (
-          <CityMap
-            districts={allDistricts}
-            city={city}
-            here={mapHere}
-            picked={pickedPlace}
-            onPick={setPickedPlace}
-          />
-        )}
-        {!mapOpen && scene.kind === "street" && district && (
-          <District data={district} />
-        )}
-        {!mapOpen && scene.kind === "street" && district && (
-          <StreetExtras data={district} onNearDoor={setNearDoor} />
-        )}
+        {mapOpen && <CityMap districts={allDistricts} city={city} here={mapHere} picked={pickedPlace} onPick={setPickedPlace} />}
+        {!mapOpen && scene.kind === "street" && district && <District data={district} />}
+        {!mapOpen && scene.kind === "street" && district && <StreetExtras data={district} onNearDoor={setNearDoor} />}
         {!mapOpen && scene.kind === "street" && <ParkedCars cars={parked} />}
-        {!mapOpen && scene.kind === "street" && district && life && (
-          <CrowdAndTraffic key={district.id} life={life} crowd={crowd} />
-        )}
-        {guiding && heading && (
-          <Guide
-            key={`${heading.district}:${heading.name}`}
-            x={heading.x}
-            z={heading.z}
-            onDistance={walked}
-          />
-        )}
+        {!mapOpen && scene.kind === "street" && district && life && <CrowdAndTraffic key={district.id} life={life} crowd={crowd} />}
+        {guiding && heading && <Guide key={`${heading.district}:${heading.name}`} x={heading.x} z={heading.z} onDistance={walked} />}
         {!mapOpen && scene.kind === "street" && district && (
-          <PoliceCheckpoints
-            district={district.id}
-            onReach={calledOver}
-            paused={panelOpen || busy || tiedUp || held > 0 || driving !== null}
-          />
+          <PoliceCheckpoints district={district.id} onReach={calledOver} paused={panelOpen || busy || tiedUp || held > 0 || driving !== null} />
         )}
         {scene.kind === "home" && home && (
           <HomeScene
@@ -1722,66 +1397,35 @@ export function Game({
             cars={homeCars}
           />
         )}
-        {scene.kind === "home" && home && decorating && (
-          <BuildCamera lot={home.plan.lot} cell={home.plan.cell} />
-        )}
+        {scene.kind === "home" && home && decorating && <BuildCamera lot={home.plan.lot} cell={home.plan.cell} />}
         {scene.kind === "arena" && arena.club && (
           <ArenaScene
             coach={arena.club.coach}
-            opponent={
-              arena.fight
-                ? {
-                    name: arena.fight.opponent_name,
-                    look: arena.fight.opponent_look,
-                  }
-                : null
-            }
+            opponent={arena.fight ? { name: arena.fight.opponent_name, look: arena.fight.opponent_look } : null}
             them={arena.them}
             onNear={arena.setNear}
           />
         )}
         <Suspense fallback={null}>
-          {scene.kind === "club" && (
-            <ClubScene playersRef={playersRef} onNear={homeLife.setNear} />
-          )}
+          {scene.kind === "club" && <ClubScene playersRef={playersRef} onNear={homeLife.setNear} />}
           {venue && (
-            <VenueScene
-              key={venue.id}
-              layout={venue}
-              playersRef={playersRef}
-              onNear={homeLife.setNear}
-              onSpecial={setSpecial}
-              onScare={frighten}
-              carColours={showColours}
-            />
+            <VenueScene key={venue.id} layout={venue} playersRef={playersRef} onNear={homeLife.setNear} onSpecial={setSpecial} onScare={frighten} carColours={showColours} />
           )}
           {lookLoaded && collider && !mapOpen && (
             <LocalPlayer
               key={spawn.key}
               start={{ x: spawn.x, z: spawn.z }}
               sendMove={silent ? sendNothing : sendMove}
-              takeServerPosition={
-                silent ? noServerPosition : takeServerPosition
-              }
+              takeServerPosition={silent ? noServerPosition : takeServerPosition}
               look={draft ?? look}
               customising={customising}
               collider={collider}
-              fight={
-                scene.kind === "arena"
-                  ? arena.you
-                  : posing
-                  ? homeLife.pose
-                  : null
-              }
+              fight={scene.kind === "arena" ? arena.you : posing ? homeLife.pose : null}
               hold={policeHold ?? hold}
               said={said[player.id] ?? ""}
               out={homeLife.wakeAt !== null}
               spraying={homeLife.life?.doing?.pose === "spray"}
-              orbit={
-                scene.kind === "street" ||
-                scene.kind === "home" ||
-                Boolean(venue?.open)
-              }
+              orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)}
               frozen={decorating}
               driving={scene.kind === "street" ? driving : null}
             />
@@ -1814,27 +1458,52 @@ export function Game({
 
       {/* The map takes fingers and the mouse itself, so the walking controls step aside for it. */}
       {!mapOpen && !decorating && !driving && (
-        <TouchControls
-          key={customising ? "spin" : "play"}
-          mode={customising ? "spin" : "play"}
-          turn={
-            scene.kind === "street" ||
-            scene.kind === "home" ||
-            Boolean(venue?.open)
-          }
+        <TouchControls key={customising ? "spin" : "play"} mode={customising ? "spin" : "play"} turn={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)} />
+      )}
+      {driving && scene.kind === "street" && !overlay && !panelOpen && <DriveHud onGetOut={() => void getOutOfCar()} busy={carBusy} />}
+
+      {delivery && !photo && !panelOpen && scene.kind !== "club" && (
+        <DeliveryHud
+          key={delivery.id}
+          delivery={delivery}
+          atDoor={atDoor}
+          busy={jobBusy}
+          onHandOver={() => void finishDelivery()}
+          onDrop={() => void giveUpDelivery()}
+          onMap={openMap}
         />
       )}
-      {driving && scene.kind === "street" && !overlay && !panelOpen && (
-        <DriveHud onGetOut={() => void getOutOfCar()} busy={carBusy} />
+
+      {newVersion && !photo && (
+        <div className="update-bar" role="status">
+          <span>A new version of Beninlife is out.</span>
+          <button type="button" onClick={() => window.location.reload()}>
+            Refresh
+          </button>
+        </div>
       )}
 
       {!photo && !mapOpen && (
-        <div className='hud'>
+        <div className="hud">
           {scene.kind === "club" ? (
             <span />
           ) : (
-            <div className='hud-card'>
-              <strong>@{player.username}</strong>
+            <div className="hud-card">
+              <strong>
+                <button
+                  type="button"
+                  className="hud-sound"
+                  aria-label={streetSound ? "Turn the street music off" : "Turn the street music on"}
+                  aria-pressed={streetSound}
+                  onClick={() => {
+                    rememberStreetMusic(!streetSound);
+                    setStreetSound(!streetSound);
+                  }}
+                >
+                  ♫
+                </button>
+                @{player.username} <small className="hud-beta" title="Beninlife is in beta: things will change, and some things may break.">BETA</small>
+              </strong>
               <span>₦{money.toLocaleString()}</span>
               <span className={connected ? "online" : "offline"}>
                 {connected ? `${remotes.length + 1} online` : "Connecting…"}
@@ -1842,251 +1511,151 @@ export function Game({
             </div>
           )}
           {!customising && (
-            <div className='hud-actions'>
+            <div className="hud-actions">
               {indoors && !tiedUp && !decorating && scene.kind !== "club" && (
-                <button
-                  type='button'
-                  className='hud-button'
-                  onClick={goOutside}
-                >
+                <button type="button" className="hud-button" onClick={goOutside}>
                   Go outside
                 </button>
               )}
               {scene.kind === "home" && !tiedUp && !decorating && (
-                <button
-                  type='button'
-                  className='hud-button hud-build'
-                  onClick={() => setDecorating(true)}
-                >
+                <button type="button" className="hud-button hud-build" onClick={() => setDecorating(true)}>
                   Build
                 </button>
               )}
               {!indoors && !tiedUp && !driving && story?.done && (
-                <button
-                  type='button'
-                  className='hud-button'
-                  onClick={() => setKeysOpen(true)}
-                  disabled={busy}
-                >
+                <button type="button" className="hud-button" onClick={() => setKeysOpen(true)} disabled={busy}>
                   Car
                 </button>
               )}
               {!indoors && !tiedUp && !driving && (
                 <>
                   {story?.done && !inHostel && (
-                    <button
-                      type='button'
-                      className='hud-button'
-                      onClick={() => void goHome()}
-                      disabled={busy}
-                    >
+                    <button type="button" className="hud-button" onClick={() => void goHome()} disabled={busy}>
                       {busy ? "Opening…" : "Home"}
                     </button>
                   )}
-                  <button
-                    type='button'
-                    className='hud-button'
-                    onClick={openMap}
-                    disabled={!district || busy}
-                  >
+                  <button type="button" className="hud-button" onClick={openMap} disabled={!district || busy}>
                     Map
                   </button>
                 </>
               )}
               {story?.done && scene.kind !== "arena" && !decorating && (
-                <button
-                  type='button'
-                  className='hud-button'
-                  onClick={() => setPhoneOpen(true)}
-                >
+                <button type="button" className="hud-button" onClick={() => setPhoneOpen(true)}>
                   Phone
-                  {unread > 0 && <span className='hud-dot'>{unread}</span>}
+                  {unread > 0 && <span className="hud-dot">{unread}</span>}
                 </button>
               )}
               {!indoors && !tiedUp && !driving && (
-                <button
-                  type='button'
-                  className='hud-button'
-                  onClick={openCreator}
-                  disabled={!look || !options}
-                >
+                <button type="button" className="hud-button" onClick={openCreator} disabled={!look || !options}>
                   Edit look
                 </button>
               )}
               {/* Out on the street the camera can be swung right round. This shows which way is north, and puts it back. */}
-              {!indoors && (
-                <Compass read={() => cameraView.yaw} onReset={faceNorth} />
-              )}
+              {!indoors && <Compass read={() => cameraView.yaw} onReset={faceNorth} />}
             </div>
           )}
         </div>
       )}
 
-      {placeName && !overlay && !fighting && scene.kind !== "club" && (
-        <div className='place-name'>{placeName}</div>
-      )}
+      {placeName && !overlay && !fighting && scene.kind !== "club" && <div className="place-name">{placeName}</div>}
       {placeName && !overlay && scene.kind === "club" && (
-        <div
-          className='place-name'
-          style={{
-            top: "calc(64px + env(safe-area-inset-top))",
-            letterSpacing: "0.14em",
-          }}
-        >
+        <div className="place-name" style={{ top: "calc(64px + env(safe-area-inset-top))", letterSpacing: "0.14em" }}>
           {placeName}
         </div>
       )}
-      {notice && !photo && <div className='notice notice-news'>{notice}</div>}
-      {toast && scene.kind !== "club" && !photo && (
-        <div className='notice notice-loud'>{toast}</div>
-      )}
+      {notice && !photo && <div className="notice notice-news">{notice}</div>}
+      {toast && scene.kind !== "club" && !photo && <div className="notice notice-loud">{toast}</div>}
       {/* The map's credit must always be readable: where the say bar is along the bottom, it sits above it. */}
       {district && !indoors && !mapOpen && (
         <div
-          className='map-credit'
+          className="map-credit"
           style={
             driving
-              ? {
-                  bottom: "calc(112px + env(safe-area-inset-bottom))",
-                  left: "14px",
-                  right: "auto",
-                  transform: "none",
-                }
+              ? { bottom: "calc(112px + env(safe-area-inset-bottom))", left: "14px", right: "auto", transform: "none" }
               : sayBar
-              ? { bottom: "calc(60px + env(safe-area-inset-bottom))" }
-              : undefined
+                ? { bottom: "calc(60px + env(safe-area-inset-bottom))" }
+                : undefined
           }
         >
           {district.attribution}
         </div>
       )}
       {mapError && (
-        <div className='map-error'>
+        <div className="map-error">
           <strong>The map did not load.</strong>
           <span>{mapError}</span>
-          <span>
-            Check that the map file is in frontend/public/map, then refresh.
-          </span>
+          <span>Check that the map file is in frontend/public/map, then refresh.</span>
         </div>
       )}
 
       {/* A tout has hold of you: shake them off, or give in and look. */}
       {!indoors && !panelOpen && held > 0 && (
-        <div className='crowd-actions'>
-          <button
-            type='button'
-            className='shake'
-            onClick={() => crowd && shakeOff(crowd)}
-          >
+        <div className="crowd-actions">
+          <button type="button" className="shake" onClick={() => crowd && shakeOff(crowd)}>
             Leave me!
           </button>
-          <button type='button' className='give-in' onClick={lookAtGoods}>
+          <button type="button" className="give-in" onClick={lookAtGoods}>
             Okay, show me
           </button>
         </div>
       )}
       {!indoors && !panelOpen && !tiedUp && !driving && nearCar && (
-        <div className='crowd-actions'>
-          <button
-            type='button'
-            className='give-in'
-            onClick={() => void getInCar()}
-            disabled={carBusy}
-          >
+        <div className="crowd-actions">
+          <button type="button" className="give-in" onClick={() => void getInCar()} disabled={carBusy}>
             {carBusy ? "Opening…" : "Get in and drive"}
           </button>
         </div>
       )}
-      {!indoors &&
-        !panelOpen &&
-        !tiedUp &&
-        !driving &&
-        !nearCar &&
-        held === 0 &&
-        (nearSeller || doorHere) &&
-        !spotHere && (
-          <div className='crowd-actions'>
-            {doorHere && (
-              <button
-                type='button'
-                className='give-in'
-                onClick={() => void goThrough(doorHere)}
-                disabled={busy}
-              >
-                {busy ? "Opening…" : `Enter ${doorHere.text}`}
-              </button>
-            )}
-            {nearSeller && !doorHere && (
-              <button
-                type='button'
-                className='give-in'
-                onClick={() =>
-                  setShop({
-                    shopId: nearSeller.shop,
-                    seller: nearSeller.name,
-                    fromTout: false,
-                  })
-                }
-              >
-                Buy from {nearSeller.name}
-              </button>
-            )}
-          </div>
-        )}
-
-      {/* In a room: something that opens a panel of its own. */}
-      {venue &&
-        special &&
-        !panelOpen &&
-        !tiedUp &&
-        !homeLife.menu &&
-        !homeLife.life?.doing && (
-          <div
-            className='crowd-actions'
-            style={{
-              bottom: homeLife.near
-                ? "calc(130px + env(safe-area-inset-bottom))"
-                : undefined,
-            }}
-          >
-            <button
-              type='button'
-              className='give-in'
-              onClick={() => {
-                if (special.kind === "shop")
-                  setShop({
-                    shopId: special.shop,
-                    seller: special.name,
-                    fromTout: false,
-                  });
-                else if (special.kind === "wardrobe") setWardrobeOpen(true);
-                else if (special.kind === "car") setDealerCar(special.model);
-                else setStoryOpen2(special);
-              }}
-            >
-              {special.kind === "shop"
-                ? `Shop: ${special.name}`
-                : special.kind === "wardrobe"
-                ? "Browse the boutique"
-                : special.kind === "car"
-                ? `See the ${special.name}`
-                : `Hear the story: ${special.story.title}`}
+      {!indoors && !panelOpen && !tiedUp && !driving && !nearCar && held === 0 && (nearSeller || doorHere) && !spotHere && (
+        <div className="crowd-actions">
+          {doorHere && (
+            <button type="button" className="give-in" onClick={() => void goThrough(doorHere)} disabled={busy}>
+              {busy ? "Opening…" : `Enter ${doorHere.text}`}
             </button>
-          </div>
-        )}
-
-      {scene.kind === "arena" && !customising && (
-        <ArenaHud arena={arena} money={money} />
+          )}
+          {nearSeller && !doorHere && (
+            <button
+              type="button"
+              className="give-in"
+              onClick={() => setShop({ shopId: nearSeller.shop, seller: nearSeller.name, fromTout: false })}
+            >
+              Buy from {nearSeller.name}
+            </button>
+          )}
+        </div>
       )}
 
+      {/* In a room: something that opens a panel of its own. */}
+      {venue && special && !panelOpen && !tiedUp && !homeLife.menu && !homeLife.life?.doing && (
+        <div className="crowd-actions" style={{ bottom: homeLife.near ? "calc(130px + env(safe-area-inset-bottom))" : undefined }}>
+          <button
+            type="button"
+            className="give-in"
+            onClick={() => {
+              if (special.kind === "shop") setShop({ shopId: special.shop, seller: special.name, fromTout: false });
+              else if (special.kind === "wardrobe") setWardrobeOpen(true);
+              else if (special.kind === "car") setDealerCar(special.model);
+              else if (special.kind === "delivery") void startDelivery();
+              else setStoryOpen2(special);
+            }}
+          >
+            {special.kind === "shop"
+              ? `Shop: ${special.name}`
+              : special.kind === "wardrobe"
+                ? "Browse the boutique"
+                : special.kind === "car"
+                  ? `See the ${special.name}`
+                  : special.kind === "delivery"
+                    ? delivery ? "You are carrying an order" : "Take a delivery order"
+                    : `Hear the story: ${special.story.title}`}
+          </button>
+        </div>
+      )}
+
+      {scene.kind === "arena" && !customising && <ArenaHud arena={arena} money={money} />}
+
       {/* Needs and the player's own clock: always in view, except where they would cover a fight or a form. */}
-      {homeLife.life &&
-        !overlay &&
-        !storyOpen &&
-        !fighting &&
-        ride === null &&
-        !decorating &&
-        !driving && <LifeHud life={homeLife.life} />}
+      {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && !decorating && !driving && <LifeHud life={homeLife.life} />}
 
       {/* Friends: an invite to answer, and who is rolling with this player. */}
       {!storyOpen && ride === null && (
@@ -2094,45 +1663,33 @@ export function Game({
           crew={crew}
           busy={crewBusy}
           onAccept={(fromId) => void joinCrew(fromId)}
-          onDecline={(fromId) =>
-            void answerCrew(() => declineCrew(player.id, fromId))
-          }
+          onDecline={(fromId) => void answerCrew(() => declineCrew(player.id, fromId))}
           onLeave={() => void answerCrew(() => leaveCrew(player.id))}
           showCrew={!mapOpen && !phoneOpen && !overlay}
         />
       )}
 
       {/* Using things: furniture and roommates at home, the bar and the dance floor in the club, a buka or a shuttle on the street. */}
-      {scene.kind !== "arena" &&
-        !overlay &&
-        !decorating &&
-        !roomPanel &&
-        !driving &&
-        !(scene.kind === "street" && (panelOpen || held > 0)) && (
-          <LifeActions
-            homeLife={homeLife}
-            noButton={scene.kind === "club"}
-            extra={
-              boothOpen ? (
-                <BoothCard
-                  club={club}
-                  until={vipUntil}
-                  money={money}
-                  others={remotes}
-                  busy={clubBusy}
-                  error={clubError}
-                  onRent={() =>
-                    void atTheClub(
-                      () => rentBooth(player.id),
-                      "Could not rent a booth."
-                    )
-                  }
-                  onInvite={(guest) => void invite(guest)}
-                />
-              ) : null
-            }
-          />
-        )}
+      {scene.kind !== "arena" && !overlay && !decorating && !roomPanel && !driving && !(scene.kind === "street" && (panelOpen || held > 0)) && (
+        <LifeActions
+          homeLife={homeLife}
+          noButton={scene.kind === "club"}
+          extra={
+            boothOpen ? (
+              <BoothCard
+                club={club}
+                until={vipUntil}
+                money={money}
+                others={remotes}
+                busy={clubBusy}
+                error={clubError}
+                onRent={() => void atTheClub(() => rentBooth(player.id), "Could not rent a booth.")}
+                onInvite={(guest) => void invite(guest)}
+              />
+            ) : null
+          }
+        />
+      )}
 
       {scene.kind === "home" && home && decorating && !customising && (
         <BuildPanel
@@ -2173,21 +1730,13 @@ export function Game({
 
       {/* Wherever players share a place they can talk: typed for everyone near, and by voice for whoever is standing with them. */}
       {sayBar && !decorating && !driving && (
-        <SayBar
-          onSay={speak}
-          lines={lines}
-          voice={Voice.supported() ? voiceState : null}
-          voiceWith={voiceWith}
-          onVoice={() => void toggleVoice()}
-        />
+        <SayBar onSay={speak} lines={lines} voice={Voice.supported() ? voiceState : null} voiceWith={voiceWith} onVoice={() => void toggleVoice()} />
       )}
 
       {!shared && !customising && !tiedUp && (
-        <div className='hint'>
-          <span className='hint-keys'>
-            WASD to walk · Shift to sprint · Scroll to zoom
-          </span>
-          <span className='hint-touch'>Drag to move · Pinch to zoom</span>
+        <div className="hint">
+          <span className="hint-keys">WASD to walk · Shift to sprint · Scroll to zoom</span>
+          <span className="hint-touch">Drag to move · Pinch to zoom</span>
         </div>
       )}
 
@@ -2219,9 +1768,7 @@ export function Game({
           error={cityError}
           money={money}
           here={mapHere}
-          picked={
-            city?.places.find((place) => place.id === pickedPlace) ?? null
-          }
+          picked={city?.places.find((place) => place.id === pickedPlace) ?? null}
           going={going}
           problem={goProblem}
           credit={district?.attribution ?? ""}
@@ -2235,33 +1782,17 @@ export function Game({
         <WardrobePanel
           playerId={player.id}
           onMoney={setMoney}
-          onWear={() =>
-            fetchLookState(player.id)
-              .then((state) => setLook(state.look))
-              .catch(() => {})
-          }
+          onWear={() => fetchLookState(player.id).then((state) => setLook(state.look)).catch(() => {})}
           onClose={() => setWardrobeOpen(false)}
         />
       )}
-      {storyOpen2?.kind === "story" && (
-        <StoryPanel
-          story={storyOpen2.story}
-          onClose={() => setStoryOpen2(null)}
-        />
-      )}
+      {storyOpen2?.kind === "story" && <StoryPanel story={storyOpen2.story} onClose={() => setStoryOpen2(null)} />}
       {dealerCar && (
         <DealerPanel
           playerId={player.id}
           model={dealerCar}
-          colour={
-            showColours[dealerCar] ??
-            VENUES.dealer?.cars?.find((car) => car.model === dealerCar)
-              ?.colour ??
-            "black"
-          }
-          onColour={(model, colour) =>
-            setShowColours((now) => ({ ...now, [model]: colour }))
-          }
+          colour={showColours[dealerCar] ?? VENUES.dealer?.cars?.find((car) => car.model === dealerCar)?.colour ?? "black"}
+          onColour={(model, colour) => setShowColours((now) => ({ ...now, [model]: colour }))}
           onBought={(done) => {
             setCars(done);
             setMoney(done.money);
@@ -2297,34 +1828,17 @@ export function Game({
         />
       )}
       <ScareOverlay scare={scare} />
-      {ride && (
-        <BusRide
-          from={ride.from}
-          to={ride.to}
-          fare={ride.fare}
-          mode={ride.mode}
-          seconds={ride.seconds}
-          onDone={() => void arrive()}
-        />
-      )}
+      {ride && <BusRide from={ride.from} to={ride.to} fare={ride.fare} mode={ride.mode} seconds={ride.seconds} onDone={() => void arrive()} />}
 
       {/* Walking to a place picked on the map: how far is left, and a way to stop being shown. */}
       {heading && !overlay && !panelOpen && scene.kind === "street" && (
-        <div className='guide-chip'>
+        <div className="guide-chip">
           <span>
             {district?.id === heading.district
-              ? `${heading.name}${
-                  headingMetres !== null
-                    ? ` · ${headingMetres.toLocaleString()} m`
-                    : ""
-                }`
+              ? `${heading.name}${headingMetres !== null ? ` · ${headingMetres.toLocaleString()} m` : ""}`
               : `${heading.name} is in another part of town`}
           </span>
-          <button
-            type='button'
-            onClick={() => setHeading(null)}
-            aria-label={`Stop showing the way to ${heading.name}`}
-          >
+          <button type="button" onClick={() => setHeading(null)} aria-label={`Stop showing the way to ${heading.name}`}>
             ✕
           </button>
         </div>
@@ -2343,6 +1857,7 @@ export function Game({
           onMoney={setMoney}
           onUnread={setUnread}
           onSignOut={onSignOut}
+          admin={admin}
           onMap={() => {
             setPhoneOpen(false); // put away first, so whatever the map has to say can be seen
             void loadLife();
@@ -2357,10 +1872,7 @@ export function Game({
 
       {storyOpen && story && (
         <StoryQuiz
-          questions={{
-            citizen: story.questions,
-            student: story.student_questions,
-          }}
+          questions={{ citizen: story.questions, student: story.student_questions }}
           onTell={(path, answers) => tellStory(player.id, path, answers)}
           onDone={finishStory}
         />

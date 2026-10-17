@@ -1,11 +1,13 @@
 // The music in the clubs, lounges and anywhere else with a sound of its own.
 //
 // Adding music: put an .mp3 (your own, or one you have the right to use) in
-// frontend/public/audio/, named after the place, and it plays on a loop inside:
-//   club.mp3       Que Club, and any club without a file of its own
-//   patricia.mp3, patio.mp3, space.mp3, darkalley.mp3      the four GRA clubs
-//   greyfield.mp3, driveway.mp3, mandela.mp3, zzone.mp3    the lounges
-//   mall.mp3, zoo.mp3, kada.mp3, golf.mp3 ...              any other place, by its id in venues.ts
+// frontend/public/audio/, named after the place's id, and it plays on a loop inside:
+//   club.mp3                                         the Nightclub, and any club without its own
+//   patricia.mp3, patio.mp3, space.mp3, darkalley.mp3  the four clubs on Okada Avenue
+//   greyfield.mp3, driveway.mp3, mandela.mp3, zzone.mp3  the four lounges on Boundary Road
+//   mall.mp3, zoo.mp3, haunted.mp3, kada.mp3, golf.mp3, aquarium.mp3, mimeals.mp3 ...
+//                                                    any other place, by its id in venues.ts
+//   street.mp3                                       outside, quietly (streetMusic.ts)
 // A club with no file at all still has music: a simple beat made on the spot (a kick, a
 // shaker, a log drum and a bass note) at the same two beats a second its lights keep.
 

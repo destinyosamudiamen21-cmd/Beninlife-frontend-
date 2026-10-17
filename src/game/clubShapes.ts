@@ -355,7 +355,7 @@ function turnRound(mesh: MeshData, x0: number, z0: number): MeshData {
   return { ...mesh, positions, normals };
 }
 
-// The clubs of GRA get the same front as Que Club: a canopy, a carpet and a rope.
+// The clubs of GRA get the same front as Nightclub: a canopy, a carpet and a rope.
 const CLUB_FRONTS = new Set(["club", "patricia", "patio", "space", "darkalley"]);
 
 export function buildStreetFront(door: Door): MeshData {

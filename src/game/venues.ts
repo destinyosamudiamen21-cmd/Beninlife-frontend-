@@ -1,4 +1,4 @@
-// Every room a player can walk into besides their house, the fight club and Que Club: the
+// Every room a player can walk into besides their house, the fight club and Nightclub: the
 // museum, the hospital, the police station, the mall, the clubs and lounges of GRA, the
 // golf course, the haunted house and the flyover.
 //
@@ -31,7 +31,8 @@ export type Special =
   | { kind: "shop"; shop: string; name: string; x: number; z: number; reach: number }
   | { kind: "wardrobe"; name: string; x: number; z: number; reach: number }
   | { kind: "story"; story: Story; x: number; z: number; reach: number }
-  | { kind: "car"; model: string; name: string; x: number; z: number; reach: number };
+  | { kind: "car"; model: string; name: string; x: number; z: number; reach: number }
+  | { kind: "delivery"; name: string; x: number; z: number; reach: number };
 
 /** A car on show: which one, in which colour, where, and which way it faces. */
 export type ShowCar = { model: string; colour: string; x: number; z: number; rot: number; turntable?: boolean };
@@ -45,7 +46,7 @@ export type Scare = { id: string; x: number; z: number; r: number; kind: "ghost"
 /** A sign: words on a board, on a wall or over a counter. */
 export type Sign = { text: string; x: number; y: number; z: number; size: number; colour: string; back?: string; face?: "front" | "left" | "right" };
 
-export type Lighting = "bright" | "warm" | "club" | "dark" | "night" | "day" | "aqua" | "cinema" | "showroom";
+export type Lighting = "bright" | "warm" | "club" | "dark" | "night" | "day" | "aqua" | "cinema" | "showroom" | "dining";
 
 export type VenueKind =
   | "club" | "lounge" | "museum" | "haunted" | "mall" | "hospital" | "police" | "golf" | "cinema" | "food" | "shop" | "aquarium" | "flyover" | "zoo" | "showroom";
@@ -73,7 +74,7 @@ export type VenueLayout = {
   people: Person[];
   signs: Sign[];
   scares?: Scare[];
-  /** Lit tiles, as on Que Club's floor. */
+  /** Lit tiles, as on Nightclub's floor. */
   danceFloor?: { x: number; z: number; tile: number; tiles: number; colours: string[] };
   /** A screen that changes colour, as at the cinema. */
   screen?: { x: number; y: number; z: number; hx: number; hy: number };
@@ -460,7 +461,7 @@ function haunted(): VenueLayout {
   });
 }
 
-// ---- Stop & Shop Mall ----------------------------------------------------------------------------
+// ---- Ugbowo Mall ----------------------------------------------------------------------------
 
 function mall(): VenueLayout {
   const width = 38, depth = 26;
@@ -496,7 +497,7 @@ function mall(): VenueLayout {
     ...tableSet(29, 21, "#efeee8", "#c0392b"), ...tableSet(33, 21.5, "#efeee8", "#c0392b"), ...tableSet(25, 22, "#efeee8", "#c0392b"),
   ];
   return room({
-    id: "mall", name: "Stop & Shop Mall", kind: "mall", width, depth, wallHeight: 6,
+    id: "mall", name: "Ugbowo Mall", kind: "mall", width, depth, wallHeight: 6,
     floor: "#ece8e0", floorAlt: "#e2ddd3", wall: "#f2efe9", trim: "#2f9e54", sky: "#d9e4ec", lighting: "bright",
     boxes,
     things: [
@@ -505,7 +506,7 @@ function mall(): VenueLayout {
     ],
     specials: [
       { kind: "wardrobe", name: "The boutique", x: 6, z: 5, reach: 3.2 },
-      { kind: "shop", shop: "stopshop", name: "Stop & Shop supermarket", x: 30, z: 5.5, reach: 3.2 },
+      { kind: "shop", shop: "stopshop", name: "Mall supermarket", x: 30, z: 5.5, reach: 3.2 },
     ],
     people: [
       { x: 6, z: 7.6, rot: Math.PI, look: STAFF(2, "#d63f8c", "woman"), label: "Boutique" },
@@ -519,7 +520,7 @@ function mall(): VenueLayout {
     signs: [
       { text: "BOUTIQUE", x: 6, y: 4.6, z: 9.25, size: 0.6, colour: "#d63f8c", face: "front" },
       { text: "ARCADE", x: 19, y: 4.6, z: 9.25, size: 0.55, colour: "#2f6fd6", face: "front" },
-      { text: "STOP & SHOP", x: 31, y: 4.6, z: 9.25, size: 0.6, colour: "#2f9e54", face: "front" },
+      { text: "SUPERMARKET", x: 31, y: 4.6, z: 9.25, size: 0.6, colour: "#2f9e54", face: "front" },
       { text: "Food court · Shawarma · Ice cream", x: 34, y: 3.3, z: 16.85, size: 0.3, colour: "#3a2a1a", face: "front" },
       { text: "Changing rooms", x: 1.2, y: 2.65, z: 7.9, size: 0.26, colour: "#3a2a1a", face: "front" },
     ],
@@ -669,7 +670,7 @@ function golf(): VenueLayout {
   });
 }
 
-// ---- Kada Cinemas -------------------------------------------------------------------------------------------
+// ---- Cinema -------------------------------------------------------------------------------------------
 
 function cinema(): VenueLayout {
   const width = 26, depth = 22;
@@ -686,7 +687,7 @@ function cinema(): VenueLayout {
     ...plant(1, 20.5), ...plant(25, 20.5),
   ];
   return room({
-    id: "kada", name: "Kada Cinemas", kind: "cinema", width, depth, wallHeight: 5,
+    id: "kada", name: "Cinema", kind: "cinema", width, depth, wallHeight: 5,
     floor: "#2a1a22", floorAlt: "#24161d", wall: "#3a1f28", trim: "#c79a2b", sky: "#0b0809", lighting: "cinema",
     boxes,
     screen: { x: 13, y: 2.9, z: 0.15, hx: 9.5, hy: 2.1 },
@@ -700,14 +701,14 @@ function cinema(): VenueLayout {
       ...[[9, 5.5], [15, 5.5], [11, 7.5], [17, 3.5]].map(([x, z], i) => ({ x, z, rot: Math.PI, look: PARTY[i], move: "sit" as const })),
     ],
     signs: [
-      { text: "NOW SHOWING · KADA CINEMAS", x: 13, y: 2.0, z: 11.2, size: 0.32, colour: "#ffe9a0", face: "front" },
+      { text: "NOW SHOWING", x: 13, y: 2.0, z: 11.2, size: 0.32, colour: "#ffe9a0", face: "front" },
       { text: "Tickets", x: 5, y: 2.9, z: 15.3, size: 0.32, colour: "#ffffff", face: "front" },
       { text: "Popcorn · Drinks", x: 20.5, y: 2.3, z: 16.0, size: 0.3, colour: "#3a2a1a", back: "#c79a2b", face: "front" },
     ],
   });
 }
 
-// ---- Burger King -----------------------------------------------------------------------------------------------
+// ---- Burger Spot -----------------------------------------------------------------------------------------------
 
 function burger(): VenueLayout {
   const width = 16, depth = 13;
@@ -719,7 +720,7 @@ function burger(): VenueLayout {
     solid(15.4, 6, 0.4, 2.0, 0.45, "#d64545"),
   ];
   return room({
-    id: "burgerking", name: "Burger King", kind: "food", width, depth, wallHeight: 3.8,
+    id: "burgerking", name: "Burger Spot", kind: "food", width, depth, wallHeight: 3.8,
     floor: "#b0563a", floorAlt: "#a24f35", wall: "#f2e2c4", trim: "#d64545", sky: "#3a2a1a", lighting: "bright",
     boxes,
     things: [{ spot: "bk_counter", name: "Counter", verb: "Order at the", x: 8, z: 3.4, hx: 5.5, hz: 0.55, reach: 1.4 }],
@@ -730,8 +731,101 @@ function burger(): VenueLayout {
       { x: 8, z: 9.85, rot: Math.PI, look: PARTY[0], move: "sit" },
     ],
     signs: [
-      { text: "BURGER KING", x: 8, y: 3.5, z: 0.12, size: 0.55, colour: "#d64545" },
-      { text: "Whopper · Fries · Shakes", x: 8, y: 2.05, z: 0.12, size: 0.28, colour: "#3a2a1a" },
+      { text: "BURGER SPOT", x: 8, y: 3.5, z: 0.12, size: 0.55, colour: "#d64545" },
+      { text: "Burgers · Fries · Shakes", x: 8, y: 2.05, z: 0.12, size: 0.28, colour: "#3a2a1a" },
+    ],
+  });
+}
+
+// ---- Mimeals Cuisine ------------------------------------------------------------------------------------------
+// Across the back road from the Ekosodin gate. Emerald walls, brass, cream terrazzo and blush
+// banquettes; an open kitchen behind the pass, a bar down the right, and orders to carry out
+// from the delivery desk at the end of the counter.
+
+function mimeals(): VenueLayout {
+  const width = 20, depth = 15;
+  const emerald = "#0f3b33", brass = "#d4a548", marble = "#f3efe8", blush = "#d99a8e", walnut = "#5a3a24", steel = "#b9bcc0";
+  const boxes: Box[] = [
+    // The open kitchen: steel along the back wall, the fire under the pots, and the hood.
+    solid(9.5, 0.55, 7.5, 0.45, 0.95, steel),
+    ...[4.5, 7.5, 10.5, 13.5].map((x) => glow(x, 0.55, 0.55, 0.28, 0.95, 1.0, "#ff7a2b")),
+    ...[4.5, 7.5, 10.5, 13.5].map((x) => deco(x, 0.55, 0.35, 0.22, 1.0, 1.32, "#3a3d42")),
+    deco(9.5, 0.75, 7.6, 0.65, 2.7, 3.15, "#8d9196"),
+    glow(9.5, 1.38, 7.4, 0.02, 2.72, 2.8, "#fff1d0"),
+    // The pass: dark marble with a brass edge, where orders are taken.
+    solid(10, 3.0, 5.5, 0.45, 1.05, "#1d2320"),
+    glow(10, 3.0, 5.52, 0.47, 1.05, 1.09, brass),
+    deco(10, 3.0, 5.2, 0.3, 1.09, 1.42, "#f7f3ea"),
+    ...[6.2, 8.6, 11.4, 13.8].map((x) => deco(x, 3.0, 0.32, 0.18, 1.42, 1.56, ["#e0642b", "#c8432b", "#e9b949", "#7a4a2b"][Math.round(x) % 4])),
+    // The delivery desk at the left end of the pass.
+    solid(2.9, 3.1, 0.75, 0.45, 1.1, brass),
+    deco(2.9, 3.1, 0.6, 0.35, 1.1, 1.5, "#7a4a2b"),
+    // Blush banquette down the left wall, marble tables, arched mirrors above.
+    solid(0.75, 9, 0.45, 3.6, 0.45, blush),
+    deco(0.35, 9, 0.14, 3.6, 0.45, 1.25, blush),
+    deco(0.2, 9, 0.06, 3.7, 1.25, 1.33, brass),
+    ...[6.6, 9, 11.4].flatMap((z) => [
+      solid(2.25, z, 0.5, 0.5, 0.75, marble),
+      deco(2.25, z, 0.08, 0.08, 0, 0.72, brass),
+      deco(3.15, z, 0.22, 0.22, 0, 0.45, brass),
+      // A smoky mirror in a thin brass frame, with a streak of light across it.
+      deco(0.05, z, 0.02, 0.86, 1.42, 3.48, brass),
+      deco(0.09, z, 0.03, 0.76, 1.5, 3.4, "#36605b"),
+      glow(0.125, z + 0.25, 0.005, 0.06, 1.9, 3.1, "#bfe3dc"),
+    ]),
+    // Four tables in the middle under brass pendants.
+    ...tableSet(7.6, 7.4, marble, blush), ...tableSet(12.4, 7.4, marble, blush),
+    ...tableSet(7.6, 11, marble, blush), ...tableSet(12.4, 11, marble, blush),
+    ...[[7.6, 7.4], [12.4, 7.4], [7.6, 11], [12.4, 11], [2.25, 6.6], [2.25, 9], [2.25, 11.4]].flatMap(([x, z]) => [
+      deco(x, z, 0.015, 0.015, 3.6, 4.4, "#2a2a2a"),
+      deco(x, z, 0.2, 0.2, 3.52, 3.6, brass),
+      glow(x, z, 0.14, 0.14, 3.38, 3.52, "#ffe2a8"),
+    ]),
+    // The bar on the right: walnut shelves, lit bottles, a brass rail.
+    solid(18.4, 9.2, 0.45, 3.0, 1.1, "#1d2320"),
+    glow(18.4, 9.2, 0.47, 3.02, 1.1, 1.14, brass),
+    deco(19.8, 9.2, 0.15, 3.2, 0.0, 3.3, walnut),
+    ...[1.45, 2.05, 2.65].flatMap((y, row) => [7, 7.8, 8.6, 9.4, 10.2, 11].map((z, i) =>
+      glow(19.62, z, 0.05, 0.07, y, y + 0.32, ["#e9b949", "#7fd1b9", "#ff8a65", "#c5e1a5", "#f48fb1", "#fff59d"][(i + row * 2) % 6]))),
+    ...[7.2, 9.2, 11.2].map((z) => deco(17.4, z, 0.2, 0.2, 0, 0.75, brass)),
+    // The host's stand by the door, plants, and a runner down the middle.
+    solid(14.6, 13.2, 0.5, 0.35, 1.1, walnut),
+    deco(14.6, 13.2, 0.55, 0.4, 1.1, 1.14, brass),
+    ...plant(1.0, 14.0), ...plant(19.0, 14.0), ...plant(1.0, 4.4), ...plant(17.2, 4.4),
+    deco(10, 9.2, 1.1, 5.2, 0.004, 0.012, "#d8c7a6"),
+    // A brass line round the top of the walls.
+    glow(width / 2, 0.06, width / 2 - 0.2, 0.02, 4.0, 4.05, brass),
+  ];
+  return room({
+    id: "mimeals", name: "Mimeals Cuisine", kind: "food", width, depth, wallHeight: 4.4,
+    floor: "#efe6d6", floorAlt: "#e3d6bf", wall: emerald, trim: brass, sky: "#1a120b", lighting: "dining",
+    boxes,
+    things: [
+      { spot: "mimeals_counter", name: "Counter", verb: "Order at the", x: 10, z: 3.0, hx: 5.5, hz: 0.45, reach: 1.4 },
+      { spot: "mimeals_table", name: "Table", verb: "Sit at a", x: 10, z: 9.2, hx: 3.8, hz: 3.2, reach: 0.9, stand: "here" },
+      { spot: "mimeals_bar", name: "Bar", verb: "", x: 18.4, z: 9.2, hx: 0.45, hz: 3.0, reach: 1.4, stand: { x: 17.2, z: 9.2, rot: Math.PI / 2 } },
+      { spot: "mimeals_kitchen", name: "Kitchen", verb: "Go into the", x: 17.6, z: 1.6, hx: 1.4, hz: 1.0, reach: 1.2 },
+    ],
+    specials: [{ kind: "delivery", name: "Delivery desk", x: 2.9, z: 4.1, reach: 1.6 }],
+    people: [
+      { x: 10, z: 2.3, rot: 0, look: STAFF(2, emerald, "woman"), label: "Cashier" },
+      { x: 6.5, z: 1.4, rot: Math.PI, look: WHITE_COAT(4) },
+      { x: 12.5, z: 1.4, rot: Math.PI, look: WHITE_COAT(1, "woman") },
+      { x: 2.9, z: 2.3, rot: 0, look: STAFF(5, brass) , label: "Dispatch" },
+      { x: 19.1, z: 9.2, rot: -Math.PI / 2, look: STAFF(3, "#1d1d1f") },
+      { x: 14.6, z: 12.5, rot: 0, look: STAFF(0, "#1d1d1f", "woman"), label: "Host" },
+      { x: 10, z: 9.4, rot: 2.4, look: STAFF(4, emerald), label: "Waiter" },
+      { x: 8.45, z: 7.4, rot: -Math.PI / 2, look: PARTY[0], move: "sit" },
+      { x: 6.75, z: 7.4, rot: Math.PI / 2, look: PARTY[1], move: "sit" },
+      { x: 12.4, z: 11.85, rot: Math.PI, look: PARTY[2], move: "sit" },
+      { x: 0.95, z: 9, rot: Math.PI / 2, look: PARTY[4], move: "sit" },
+      { x: 3.15, z: 11.4, rot: -Math.PI / 2, look: PARTY[3], move: "sit" },
+    ],
+    signs: [
+      { text: "Mimeals Cuisine", x: 10, y: 3.65, z: 0.12, size: 0.62, colour: brass },
+      { text: "Native · Continental · Grills", x: 10, y: 3.25, z: 1.45, size: 0.24, colour: "#fff1d0" },
+      { text: "Delivery", x: 2.9, y: 1.8, z: 3.6, size: 0.24, colour: "#1a1206", back: brass, face: "front" },
+      { text: "eat well, live well", x: 19.9, y: 3.6, z: 9.2, size: 0.32, colour: "#f48fb1", face: "left" },
     ],
   });
 }
@@ -1000,7 +1094,7 @@ function dealer(): VenueLayout {
     solid(14.2, 24.8, 0.25, 0.25, 1.2, "#e9eef2"),
   ];
   return room({
-    id: "dealer", name: "Benin Auto Mall", kind: "showroom", width, depth, wallHeight: 5.6,
+    id: "dealer", name: "Car Dealership", kind: "showroom", width, depth, wallHeight: 5.6,
     floor: "#e6e7ea", floorAlt: "#dcdde1", wall: "#f5f5f7", trim: gold, sky: "#e8edf2", lighting: "showroom",
     boxes,
     cars,
@@ -1014,7 +1108,7 @@ function dealer(): VenueLayout {
       { x: 26.3, z: 9.8, rot: 2.6, look: PARTY[4] },
     ],
     signs: [
-      { text: "BENIN AUTO MALL", x: 20, y: 2.9, z: 0.24, size: 0.62, colour: "#f4f4f2" },
+      { text: "CAR DEALERSHIP", x: 20, y: 2.9, z: 0.24, size: 0.62, colour: "#f4f4f2" },
       { text: "Tokunbo · Brand new · Papers ready the same day", x: 20, y: 2.1, z: 0.24, size: 0.24, colour: gold },
       ...cars.map((car) => ({
         text: SHOW_NAMES[car.model] ?? car.model,
@@ -1026,14 +1120,14 @@ function dealer(): VenueLayout {
 
 export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
   [
-    museum(), police(), supermarket("hallmark", "Hallmark Supermarket", "hallmark", 24, 18, "#c8432b"),
+    museum(), police(), supermarket("hallmark", "Supermarket", "hallmark", 24, 18, "#c8432b"),
     hospital(), mall(),
-    supermarket("shoprite", "ShopRite", "shoprite", 28, 20, "#d62828"), burger(), cinema(),
-    lounge("zzone", "Zzone"), lounge("greyfield", "Greyfield"), lounge("driveway", "Driveway Lifestyle"), lounge("mandela", "Mandela Lounge"),
+    supermarket("shoprite", "GRA Superstore", "shoprite", 28, 20, "#d62828"), burger(), cinema(),
+    lounge("zzone", "Garden Lounge"), lounge("greyfield", "Sky Lounge"), lounge("driveway", "Courtyard Lounge"), lounge("mandela", "Jazz Lounge"),
     aquarium(),
-    club("patricia", "Club Patricia", 26, 20), club("patio", "Patio Club", 26, 20), club("space", "Space Club", 26, 20),
-    club("darkalley", "Club Dark Alley", 24, 18),
-    haunted(), golf(), flyover(), zoo(), dealer(),
+    club("patricia", "Rooftop Club", 26, 20), club("patio", "Afrobeats Club", 26, 20), club("space", "Neon Club", 26, 20),
+    club("darkalley", "Underground Club", 24, 18),
+    haunted(), golf(), flyover(), zoo(), dealer(), mimeals(),
   ].map((layout) => [layout.id, layout]),
 );
 

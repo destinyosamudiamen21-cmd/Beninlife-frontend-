@@ -5,15 +5,16 @@ import type { StoryResult } from "../api/story";
 import { DataApp, HelpApp, MeApp, SchoolApp } from "./PhoneApps";
 import { BankApp } from "./PhoneBank";
 import { FriendsApp } from "./PhoneFriends";
+import { AdminApp, SafetyApp } from "./PhoneSafety";
 import { MessagesApp } from "./PhoneMessages";
 import { Glyph } from "./glyphs";
 import { naira } from "./phoneKit";
 import type { RosterEntry } from "./types";
 
-type AppId = "messages" | "friends" | "bank" | "map" | "data" | "school" | "me" | "help";
+type AppId = "messages" | "friends" | "bank" | "map" | "data" | "school" | "me" | "help" | "safety" | "admin";
 
 /** The apps on the home screen: the picture, the name under it and the colour of its medallion. */
-const APPS: { id: AppId; name: string; glyph: string; colour: string; students?: boolean }[] = [
+const APPS: { id: AppId; name: string; glyph: string; colour: string; students?: boolean; admins?: boolean }[] = [
   { id: "messages", name: "Messages", glyph: "chat", colour: "linear-gradient(#67e86c, #1fbf3c)" },
   { id: "friends", name: "Friends", glyph: "people", colour: "linear-gradient(#ffb340, #ff7a00)" },
   { id: "bank", name: "Bank", glyph: "bank", colour: "linear-gradient(#7b5cff, #4a26e0)" },
@@ -22,6 +23,8 @@ const APPS: { id: AppId; name: string; glyph: string; colour: string; students?:
   { id: "school", name: "School", glyph: "school", colour: "linear-gradient(#ffd60a, #ff9f0a)", students: true },
   { id: "me", name: "Me", glyph: "person", colour: "linear-gradient(#a1a1a6, #636366)" },
   { id: "help", name: "Help", glyph: "help", colour: "linear-gradient(#ff6482, #ff2d55)" },
+  { id: "safety", name: "Safety", glyph: "shield", colour: "linear-gradient(#64d2ff, #0a84ff)" },
+  { id: "admin", name: "Admin", glyph: "shield", colour: "linear-gradient(#3a3a3c, #1c1c1e)", admins: true },
 ];
 
 /** The four that sit in the dock along the bottom, as on any phone. */
@@ -54,6 +57,8 @@ type Props = {
   onClose: () => void;
   /** Sign out of this browser. Left out when there is no account to sign out of. */
   onSignOut?: () => void;
+  /** An admin (ADMIN_EMAILS on the server) also gets the Admin app. */
+  admin?: boolean;
 };
 
 /**
@@ -68,7 +73,7 @@ type Props = {
  * All of its styles are in this file, so nothing has to be added to index.css. Each app
  * is in a file of its own (PhoneMessages.tsx and so on) and draws itself with them.
  */
-export function Phone({ playerId, username, student, nearby, arrivals, money, life, story, onMoney, onUnread, onMap, onClose, onSignOut }: Props) {
+export function Phone({ playerId, username, student, nearby, arrivals, money, life, story, onMoney, onUnread, onMap, onClose, onSignOut, admin = false }: Props) {
   const [app, setApp] = useState<AppId | null>(null);
   const [chatWith, setChatWith] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
@@ -107,7 +112,7 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
   };
 
   const energy = life ? Math.round(life.needs.energy) : null;
-  const apps = APPS.filter((entry) => !entry.students || student);
+  const apps = APPS.filter((entry) => (!entry.students || student) && (!entry.admins || admin));
 
   return (
     <div className="ph" role="dialog" aria-label="Your phone">
@@ -379,6 +384,8 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
         {app === "school" && <SchoolApp playerId={playerId} onBack={home} />}
         {app === "me" && <MeApp username={username} money={money} life={life} story={story} onBack={home} onSignOut={onSignOut} />}
         {app === "help" && <HelpApp onBack={home} />}
+        {app === "safety" && <SafetyApp playerId={playerId} nearby={nearby} onBack={home} />}
+        {app === "admin" && admin && <AdminApp onBack={home} />}
 
         {/* The bar along the bottom of every app goes back to the home screen, as on any phone. */}
         {app !== null && (

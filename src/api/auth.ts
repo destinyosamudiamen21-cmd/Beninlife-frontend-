@@ -31,7 +31,7 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-export type SignedIn = { token: string; email: string; player: Player };
+export type SignedIn = { token: string; email: string; player: Player; admin?: boolean };
 
 async function post(path: string, body: unknown): Promise<SignedIn> {
   let res: Response;
@@ -60,8 +60,26 @@ async function post(path: string, body: unknown): Promise<SignedIn> {
   return signed;
 }
 
-export function register(email: string, password: string, username: string): Promise<SignedIn> {
-  return post("/auth/register", { email, password, username });
+export function register(email: string, password: string, username: string, acceptedTerms: boolean): Promise<SignedIn> {
+  return post("/auth/register", { email, password, username, accepted_terms: acceptedTerms });
+}
+
+/** Ask for a link to choose a new password. The answer is the same whether or not the email has an account. */
+export async function forgotPassword(email: string): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/auth/forgot`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+  } catch {
+    throw new Error("Can't reach the game server. Check your connection.");
+  }
+  const answer = (await res.json().catch(() => ({}))) as { detail?: unknown };
+  if (!res.ok) throw new Error(typeof answer.detail === "string" ? answer.detail : "Something went wrong. Try again.");
+  return typeof answer.detail === "string" ? answer.detail : "Check your email for a link.";
+}
+
+/** Choose a new password with the token from the email link. Signs in. */
+export function resetPassword(token: string, password: string): Promise<SignedIn> {
+  return post("/auth/reset", { token, password });
 }
 
 export function signIn(email: string, password: string): Promise<SignedIn> {
@@ -73,8 +91,8 @@ export async function whoAmI(): Promise<SignedIn | null> {
   if (!token) return null;
   try {
     const res = await fetch(`${API_URL}/auth/me`, { headers: authHeaders() });
-    if (res.status === 401) {
-      keep(null);
+    if (res.status === 401 || res.status === 403) {
+      keep(null);   // signed out, or the account is suspended: either way, back to the sign-in screen
       return null;
     }
     if (!res.ok) return null;

@@ -22,7 +22,7 @@ function Swatch({ outfit }: { outfit: Outfit }) {
   );
 }
 
-/** The boutique in Stop & Shop: buy an outfit, change into it, sell it back for half. */
+/** The boutique in the mall: buy an outfit, change into it, sell it back for half. */
 export function WardrobePanel({ playerId, onMoney, onWear, onClose }: Props) {
   const [wardrobe, setWardrobe] = useState<Wardrobe | null>(null);
   const [busy, setBusy] = useState("");
@@ -87,7 +87,7 @@ export function WardrobePanel({ playerId, onMoney, onWear, onClose }: Props) {
         </div>
         {error && <p className="life-error-inline ward-note" style={{ color: "#ff9a8a" }}>{error}</p>}
         {said && !error && <p className="ward-note">{said}</p>}
-        {wardrobe && !wardrobe.in_shop && <p className="ward-note">You can change into clothes you own here. Buying and selling is in the boutique at Stop & Shop.</p>}
+        {wardrobe && !wardrobe.in_shop && <p className="ward-note">You can change into clothes you own here. Buying and selling is in the boutique at the mall.</p>}
         <div className="ward-list">
           {wardrobe?.outfits.map((outfit) => (
             <div key={outfit.id} className={`ward-item${wardrobe.wearing === outfit.id ? " on" : ""}`}>

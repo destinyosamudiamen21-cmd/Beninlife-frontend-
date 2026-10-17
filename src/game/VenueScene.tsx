@@ -309,6 +309,15 @@ export function VenueScene({ layout, playersRef, onNear, onSpecial, onScare, car
           <directionalLight position={[width / 2, 14, depth + 8]} intensity={1.4} />
         </>
       )}
+      {lighting === "dining" && (
+        <>
+          <hemisphereLight args={["#fff0d6", "#2a1d14", 1.05]} />
+          <directionalLight position={[width / 2, 12, depth + 6]} intensity={0.9} color="#ffe6c4" />
+          {/* Two warm lights: the dining room, and the pass. A phone pays for every light. */}
+          <pointLight position={[width / 2, 3.4, depth * 0.6]} intensity={9} distance={20} decay={1.1} color="#ffd59a" />
+          <pointLight position={[width / 2, 2.6, 2.2]} intensity={6} distance={12} decay={1.2} color="#fff1d0" />
+        </>
+      )}
       {lighting === "warm" && (
         <>
           <hemisphereLight args={["#ffe2b8", "#3a2a1a", 0.9]} />

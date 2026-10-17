@@ -1,9 +1,24 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { register, signIn, signOut, whoAmI } from "./api/auth";
+import { forgotPassword, register, resetPassword, signIn, signOut, whoAmI } from "./api/auth";
 import type { Player } from "./api/players";
 import { Game } from "./game/Game";
 
-type Mode = "signin" | "register";
+type Mode = "signin" | "register" | "forgot" | "reset";
+
+/** The token from a password-reset link (?reset=...), read once and taken out of the address
+ * at once, so it is not left in the history or sent on anywhere with the page's address. */
+function takeResetToken(): string | null {
+  try {
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get("reset");
+    if (!token) return null;
+    url.searchParams.delete("reset");
+    window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
+    return token;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The way in: sign in with an email and a password, or make an account. A browser that is
@@ -11,8 +26,12 @@ type Mode = "signin" | "register";
  */
 export default function App() {
   const [player, setPlayer] = useState<Player | null>(null);
+  const [admin, setAdmin] = useState(false);
+  const [resetToken] = useState(takeResetToken);
   const [checking, setChecking] = useState(true);
-  const [mode, setMode] = useState<Mode>("signin");
+  const [mode, setMode] = useState<Mode>(resetToken ? "reset" : "signin");
+  const [agree, setAgree] = useState(false);
+  const [info, setInfo] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
@@ -23,18 +42,22 @@ export default function App() {
     let live = true;
     void whoAmI().then((signed) => {
       if (!live) return;
-      if (signed) setPlayer(signed.player);
+      if (signed && !resetToken) {
+        setPlayer(signed.player);
+        setAdmin(Boolean(signed.admin));
+      }
       setChecking(false);
     });
     return () => {
       live = false;
     };
-  }, []);
+  }, [resetToken]);
 
   if (player) {
     return (
       <Game
         player={player}
+        admin={admin}
         onSignOut={() => {
           void signOut().then(() => setPlayer(null));
         }}
@@ -45,6 +68,39 @@ export default function App() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
+    setInfo("");
+    if (mode === "forgot") {
+      if (!email.trim()) {
+        setError("Type the email you signed up with.");
+        return;
+      }
+      setLoading(true);
+      try {
+        setInfo(await forgotPassword(email.trim()));
+      } catch (problem) {
+        setError(problem instanceof Error ? problem.message : "Could not send the link.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    if (mode === "reset") {
+      if (password.length < 8) {
+        setError("A password is at least 8 characters.");
+        return;
+      }
+      setLoading(true);
+      try {
+        const signed = await resetPassword(resetToken ?? "", password);
+        setAdmin(Boolean(signed.admin));
+        setPlayer(signed.player);
+      } catch (problem) {
+        setError(problem instanceof Error ? problem.message : "Could not change the password.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (!email.trim() || !password) {
       setError("Type your email and your password.");
       return;
@@ -57,9 +113,14 @@ export default function App() {
       setError("A password is at least 8 characters.");
       return;
     }
+    if (mode === "register" && !agree) {
+      setError("Tick the box to accept the Terms and the Privacy Policy.");
+      return;
+    }
     setLoading(true);
     try {
-      const signed = mode === "register" ? await register(email.trim(), password, username.trim()) : await signIn(email.trim(), password);
+      const signed = mode === "register" ? await register(email.trim(), password, username.trim(), agree) : await signIn(email.trim(), password);
+      setAdmin(Boolean(signed.admin));
       setPlayer(signed.player);
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Could not sign in.");
@@ -71,6 +132,7 @@ export default function App() {
   const switchTo = (next: Mode) => {
     setMode(next);
     setError("");
+    setInfo("");
   };
 
   return (
@@ -103,6 +165,12 @@ export default function App() {
         .gate-error { background: rgba(255, 59, 48, 0.18); border-radius: 10px; padding: 9px 12px; font-size: 14px; font-weight: 600; color: #ffd4d1; }
         .gate-small { text-align: center; font-size: 13px; color: rgba(255, 255, 255, 0.7); }
         .gate-small button { border: none; background: none; color: #f5c400; font: inherit; font-weight: 700; cursor: pointer; padding: 0; }
+        .gate-agree { flex-direction: row !important; align-items: flex-start; gap: 10px !important; font-weight: 500 !important; line-height: 1.4; }
+        .gate-agree input { width: 20px; height: 20px; padding: 0; margin-top: 1px; flex-shrink: 0; accent-color: #f5c400; }
+        .gate a { color: #f5c400; }
+        .gate-info { background: rgba(52, 199, 89, 0.18); border-radius: 10px; padding: 9px 12px; font-size: 14px; font-weight: 600; color: #d4ffe0; }
+        .gate-beta { display: inline-block; vertical-align: super; margin-left: 6px; font-size: 13px; letter-spacing: 0.08em; font-weight: 800; background: #f5c400; color: #1a0b24; border-radius: 6px; padding: 2px 6px; }
+        .gate-legal { text-align: center; font-size: 12px; color: rgba(255, 255, 255, 0.6); }
         .gate-keke { animation: gate-drive 14s linear infinite; }
         @keyframes gate-drive { from { transform: translateX(-160px); } to { transform: translateX(110vw); } }
         @media (prefers-reduced-motion: reduce) { .gate-keke { animation: none; transform: translateX(20vw); } }
@@ -138,45 +206,71 @@ export default function App() {
         <div className="gate-title">
           <h1>
             Benin<span>life</span>
+            <small className="gate-beta">BETA</small>
           </h1>
           <p>Live it in Benin City, with your people.</p>
         </div>
         <div className="gate-panel">
-          <div className="gate-tabs" role="group" aria-label="Sign in or make an account">
+          {(mode === "forgot" || mode === "reset") && (
+            <p style={{ fontWeight: 700, fontSize: 17 }}>{mode === "forgot" ? "Forgot your password?" : "Choose a new password"}</p>
+          )}
+          {mode === "forgot" && <p className="gate-small" style={{ textAlign: "left" }}>Type the email you signed up with. We'll send a link to choose a new password.</p>}
+          {(mode === "signin" || mode === "register") && <div className="gate-tabs" role="group" aria-label="Sign in or make an account">
             <button type="button" aria-pressed={mode === "signin"} onClick={() => switchTo("signin")}>
               Sign in
             </button>
             <button type="button" aria-pressed={mode === "register"} onClick={() => switchTo("register")}>
               Create account
             </button>
-          </div>
+          </div>}
           {mode === "register" && (
             <label>
               Username
               <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="what the city calls you" maxLength={20} autoCapitalize="none" autoComplete="username" />
             </label>
           )}
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" autoCapitalize="none" />
-          </label>
-          <label>
-            Password
+          {mode !== "reset" && (
+            <label>
+              Email
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" autoCapitalize="none" />
+            </label>
+          )}
+          {mode !== "forgot" && <label>
+            {mode === "reset" ? "New password" : "Password"}
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === "register" ? "at least 8 characters" : "your password"}
-              autoComplete={mode === "register" ? "new-password" : "current-password"}
+              placeholder={mode === "signin" ? "your password" : "at least 8 characters"}
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
             />
-          </label>
+          </label>}
+          {mode === "register" && (
+            <label className="gate-agree">
+              <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+              <span>
+                I'm 13 or older (if I'm under 18, my parent or guardian agrees), and I accept the{" "}
+                <a href="/terms.html" target="_blank" rel="noreferrer">Terms</a> and the{" "}
+                <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>.
+              </span>
+            </label>
+          )}
+          {info && (
+            <p className="gate-info" role="status">
+              {info}
+            </p>
+          )}
           {error && (
             <p className="gate-error" role="alert">
               {error}
             </p>
           )}
           <button type="submit" className="gate-go" disabled={loading || checking}>
-            {checking ? "One moment…" : loading ? (mode === "register" ? "Making your account…" : "Signing in…") : mode === "register" ? "Create account" : "Enter the city"}
+            {checking
+              ? "One moment…"
+              : loading
+                ? mode === "register" ? "Making your account…" : mode === "forgot" ? "Sending…" : "Signing in…"
+                : mode === "register" ? "Create account" : mode === "forgot" ? "Send me a link" : mode === "reset" ? "Save and enter the city" : "Enter the city"}
           </button>
         </div>
         <p className="gate-small">
@@ -185,6 +279,10 @@ export default function App() {
               New here?{" "}
               <button type="button" onClick={() => switchTo("register")}>
                 Create an account
+              </button>
+              {" · "}
+              <button type="button" onClick={() => switchTo("forgot")}>
+                Forgot password?
               </button>
             </>
           ) : (
@@ -195,6 +293,9 @@ export default function App() {
               </button>
             </>
           )}
+        </p>
+        <p className="gate-legal">
+          <a href="/terms.html" target="_blank" rel="noreferrer">Terms</a> · <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy</a> · Beninlife is in beta: things will change.
         </p>
       </form>
     </div>

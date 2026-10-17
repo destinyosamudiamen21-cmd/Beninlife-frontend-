@@ -131,7 +131,7 @@ export function DealerPanel({ playerId, model, colour, onColour, onBought, onClo
       <div className="sheet-card">
         <div className="sheet-top">
           <div>
-            <h2>Benin Auto Mall</h2>
+            <h2>Car Dealership</h2>
             <p>{info ? `${info.condition} · ${info.year}` : "…"}</p>
           </div>
           <button type="button" className="ghost" onClick={onClose}>
@@ -245,7 +245,7 @@ export function CarKeysPanel({ playerId, cars, busy, onBring, onSendHome, onCars
         </div>
         {cars && cars.cars.length === 0 && (
           <p className="sheet-note">
-            You don't have a car yet. Benin Auto Mall is on Boundary Road in GRA, right by the bus stop: from a Saloon that every mechanic knows to the flagship SUV.
+            You don't have a car yet. Car Dealership is on Boundary Road in GRA, right by the bus stop: from a Saloon that every mechanic knows to the flagship SUV.
           </p>
         )}
         <div className="car-list">

@@ -39,6 +39,8 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, detail || "Something went wrong. Try again.");
   }
+  // "Done, nothing to say" (204) has no body to read.
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
