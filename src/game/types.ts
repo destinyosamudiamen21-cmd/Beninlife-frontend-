@@ -18,6 +18,10 @@ export type RosterEntry = {
   pose: string;
   /** The car they are driving, "model|colour|plate", or "" (or missing) on foot. */
   car?: string;
+  /** A passenger: whose car they are in, or "". */
+  riding?: string;
+  /** A driver who has locked the doors. */
+  locked?: boolean;
 };
 
 /** A car standing on the street: whose it is, which car, and where. */
@@ -31,6 +35,11 @@ export type WorldEvent =
   | { type: "rtc"; from: string; data: Record<string, unknown> }
   /** A message arrived on the phone. `kind` is "money" when it is money that was sent: then `amount` is how much. */
   | { type: "dm"; from: string; name: string; text: string; kind?: string; amount?: number }
+  /**
+   * Riding in cars. To a passenger: `driver` is "" when they are out of the car (at `x`, `z`).
+   * To a driver: `passenger` got "in" or "out".
+   */
+  | { type: "ride"; driver?: string; x?: number; z?: number; passenger?: string; kind?: string }
   /** Something happened to this player: `kind` says what ("vip": `name` brought them into a booth; "saved": `name` saved their number). */
   | { type: "event"; kind: string; name: string }
   /**

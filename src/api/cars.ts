@@ -72,3 +72,23 @@ export function sendCarHome(playerId: string): Promise<Cars> {
 export function carLook(car: OwnedCar): string {
   return `${car.model}|${car.colour}|${car.plate}`;
 }
+
+// ---- riding in someone else's car ----------------------------------------------------------
+
+export type Ride = { driver_id: string | null; passengers: string[]; seats: number; locked: boolean };
+
+export function joinRide(playerId: string, driverId: string): Promise<Ride> {
+  return request<Ride>(`/players/${playerId}/ride`, sendJson("POST", { driver_id: driverId }));
+}
+
+export function leaveRide(playerId: string): Promise<Ride> {
+  return request<Ride>(`/players/${playerId}/ride/out`, { method: "POST" });
+}
+
+export function setDoors(playerId: string, locked: boolean): Promise<Ride> {
+  return request<Ride>(`/players/${playerId}/car/doors`, sendJson("POST", { locked }));
+}
+
+export function everyoneOut(playerId: string): Promise<Ride> {
+  return request<Ride>(`/players/${playerId}/car/everyone-out`, { method: "POST" });
+}

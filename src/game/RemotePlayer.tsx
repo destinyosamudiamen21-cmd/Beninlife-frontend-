@@ -20,9 +20,11 @@ type Props = {
   said?: string;
   /** True while their voice is coming through. */
   talking?: boolean;
+  /** People riding in their car: shown next to the driver's name. */
+  passengers?: number;
 };
 
-export function RemotePlayer({ entry, playersRef, heightAt, said = "", talking = false }: Props) {
+export function RemotePlayer({ entry, playersRef, heightAt, said = "", talking = false, passengers = 0 }: Props) {
   const bodyRef = useRef<Group>(null);
   const speedRef = useRef(0);
   const [placed, setPlaced] = useState(false);
@@ -92,13 +94,16 @@ export function RemotePlayer({ entry, playersRef, heightAt, said = "", talking =
   });
 
   return (
-    <group ref={bodyRef} visible={placed}>
+    // A passenger is inside someone's car: the car is drawn by its driver.
+    <group ref={bodyRef} visible={placed && !entry.riding}>
       <group visible={!car}>
         <Character speedRef={speedRef} look={entry.look} fight={entry.pose ? pose : null} />
       </group>
       {car && <Car look={car} motion={motion} driver={entry.look} />}
       {placed && entry.pose === "spray" && <SprayedNotes />}
-      {placed && <Overhead name={entry.username} said={said} out={entry.pose === "out"} talking={talking} />}
+      {placed && !entry.riding && (
+        <Overhead name={passengers > 0 ? `${entry.username} +${passengers}` : entry.username} said={said} out={entry.pose === "out"} talking={talking} />
+      )}
     </group>
   );
 }

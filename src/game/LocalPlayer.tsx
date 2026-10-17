@@ -105,6 +105,8 @@ type Props = {
   frozen?: boolean;
   /** Set while the player is driving. */
   driving?: Driving | null;
+  /** Set while the player is a passenger: where the car they are in is now. */
+  riding?: (() => { x: number; z: number; rot: number } | null) | null;
 };
 
 function shortestAngle(from: number, to: number): number {
@@ -114,7 +116,7 @@ function shortestAngle(from: number, to: number): number {
 
 export function LocalPlayer({
   start, sendMove, takeServerPosition, look, customising, collider, fight, hold, said = "", out = false, spraying = false, orbit = false, frozen = false,
-  driving = null,
+  driving = null, riding = null,
 }: Props) {
   const bodyRef = useRef<Group>(null);
   const speedRef = useRef(0);
@@ -185,6 +187,36 @@ export function LocalPlayer({
     const dt = Math.min(delta, MAX_FRAME_DT);
 
     const car = carRef.current;
+    if (riding && !driving) {
+      // A passenger: the body is in the car, the camera rides behind it, and nothing is sent.
+      const at = riding();
+      if (at) {
+        const ease = 1 - Math.exp(-dt * 10);
+        body.position.x += (at.x - body.position.x) * ease;
+        body.position.z += (at.z - body.position.z) * ease;
+        body.rotation.y += shortestAngle(body.rotation.y, at.rot) * ease;
+      }
+      const x = body.position.x, z = body.position.z;
+      playerFocus.x = x;
+      playerFocus.y = 0;
+      playerFocus.z = z;
+      playerStreet.x = x;
+      playerStreet.z = z;
+      playerStreet.up = false;
+      speedRef.current = 0;
+      yawRef.current += shortestAngle(yawRef.current, body.rotation.y + Math.PI) * (1 - Math.exp(-dt * CHASE_SWING));
+      const yaw = yawRef.current;
+      cameraView.yaw = yaw;
+      const zoom = cameraInput.zoom;
+      cameraGoal.set(x + Math.sin(yaw) * CHASE_BACK * zoom, CHASE_HEIGHT * Math.pow(zoom, 0.85), z + Math.cos(yaw) * CHASE_BACK * zoom);
+      lookGoal.set(x - Math.sin(yaw) * CHASE_AHEAD, 1.0, z - Math.cos(yaw) * CHASE_AHEAD);
+      const ease = 1 - Math.exp(-dt * CAMERA_SMOOTHING * 1.6);
+      camera.position.lerp(cameraGoal, cameraReady.current ? ease : 1);
+      lookNow.lerp(lookGoal, cameraReady.current ? ease : 1);
+      cameraReady.current = true;
+      camera.lookAt(lookNow);
+      return;
+    }
     if (driving && car) {
       // At the wheel.
       const input = driving.holdUntil !== undefined && Date.now() < driving.holdUntil ? HELD : readPedals();
@@ -371,7 +403,7 @@ export function LocalPlayer({
   return (
     <group ref={bodyRef} position={[start.x, 0, start.z]}>
       {/* Kept loaded while driving, only hidden, so getting out does not wait for the body again. */}
-      <group visible={!driving}>
+      <group visible={!driving && !riding}>
         <Character speedRef={speedRef} look={look} fight={fight} />
       </group>
       {driving && <Car look={driving.look} motion={motion} driver={look} />}

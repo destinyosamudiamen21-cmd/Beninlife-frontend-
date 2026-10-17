@@ -9,7 +9,7 @@ import {
   type LookOptions,
 } from "../api/appearance";
 import { enterClub, fetchClub, inviteToBooth, rentBooth, type Club } from "../api/club";
-import { bringCar, carLook, fetchCars, getIn, getOut, sendCarHome, type Cars, type OwnedCar } from "../api/cars";
+import { bringCar, carLook, everyoneOut, fetchCars, getIn, getOut, joinRide, leaveRide, sendCarHome, setDoors, type Cars, type OwnedCar } from "../api/cars";
 import { acceptCrew, declineCrew, fetchCrew, leaveCrew, type Crew } from "../api/crew";
 import { fetchHome, type Home, type HomeChange } from "../api/home";
 import type { Player } from "../api/players";
@@ -228,11 +228,17 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   useEffect(refreshCrew, [refreshCrew]);
   // A friend took a ride and this player rode along: set by the ride code further down.
   const rideAlong = useRef<(trip: Going, by: string) => void>(() => {});
+  // Riding in someone else's car: whose, and what to do when the server says they are out.
+  const [ridingWith, setRidingWith] = useState<{ id: string; name: string } | null>(null);
+  const outOfRide = useRef<(x: number, z: number) => void>(() => {});
 
   const onEvent = useCallback(
     (event: WorldEvent) => {
       if (event.type === "say") {
         hear(event.id, event.name, event.text, false);
+      } else if (event.type === "ride") {
+        if (event.passenger) flash(event.kind === "in" ? `@${event.passenger} got in your car.` : `@${event.passenger} got out.`);
+        else if (event.driver === "" && event.x !== undefined && event.z !== undefined) outOfRide.current(event.x, event.z);
       } else if (event.type === "rtc") {
         void voice.signal(event.from, event.data);
       } else if (event.type === "dm") {
@@ -630,7 +636,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
 
   /** Through a door on the street: the fight club, the nightclub, or a student's hostel. */
   const goThrough = async (door: Door) => {
-    if (busy || homeLife.hold !== null) return;
+    if (busy || homeLife.hold !== null || ridingWith) return;
     if (door.id === "hostel") {
       if (inHostel) void goHome(door);
       else flash(student ? "You moved out of the hostel. Press Home to go to your room." : "Only the students who stay here can go in.");
@@ -941,6 +947,97 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       setCarBusy(false);
     }
   };
+
+  // ---- riding with someone ------------------------------------------------------------
+  const [nearDriver, setNearDriver] = useState<RosterEntry | null>(null);
+  const [rideBusy, setRideBusy] = useState(false);
+  const myPassengers = remotes.filter((entry) => entry.riding === player.id);
+  // Going indoors or to another part of town ends a ride (the server has already let them out).
+  const districtId = district?.id;
+  useEffect(() => {
+    setRidingWith(null);
+  }, [scene.kind, districtId]);
+  outOfRide.current = (x: number, z: number) => {
+    if (!ridingWith) return;
+    setRidingWith(null);
+    appearAt(x, z);
+  };
+  // Standing by someone's car with its doors open: "Get in with @them".
+  useEffect(() => {
+    if (scene.kind !== "street" || driving || ridingWith) {
+      setNearDriver(null);
+      return;
+    }
+    const check = () => {
+      let best: RosterEntry | null = null, bestGap = 6;
+      for (const entry of remotes) {
+        if (!entry.car || entry.locked || entry.riding) continue;
+        const at = playersRef.current.get(entry.id);
+        if (!at) continue;
+        const gap = Math.hypot(at.x - playerFocus.x, at.z - playerFocus.z);
+        if (gap < bestGap) {
+          best = entry;
+          bestGap = gap;
+        }
+      }
+      setNearDriver((was) => (was?.id === best?.id && was?.username === best?.username ? was : best));
+    };
+    check();
+    const timer = window.setInterval(check, 300);
+    return () => window.clearInterval(timer);
+  }, [scene.kind, driving, ridingWith, remotes, playersRef]);
+
+  const getInWith = async (driver: RosterEntry) => {
+    if (rideBusy) return;
+    setRideBusy(true);
+    try {
+      await joinRide(player.id, driver.id);
+      setRidingWith({ id: driver.id, name: driver.username });
+      setNearDriver(null);
+      flash(`You are in @${driver.username}'s car.`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not get in.");
+    } finally {
+      setRideBusy(false);
+    }
+  };
+  const getOutOfRide = async () => {
+    if (rideBusy || !ridingWith) return;
+    setRideBusy(true);
+    const at = playersRef.current.get(player.id);
+    try {
+      await leaveRide(player.id);
+    } catch {
+      // Out on this screen either way.
+    } finally {
+      setRideBusy(false);
+    }
+    setRidingWith(null);
+    // The server puts them beside the car; its next word on where they are settles it.
+    if (at) appearAt(at.x + 2, at.z);
+  };
+  // The driver: lock the doors, or ask everyone out.
+  const [doorsLocked, setDoorsLocked] = useState(false);
+  const toggleDoors = async () => {
+    try {
+      const ride = await setDoors(player.id, !doorsLocked);
+      setDoorsLocked(ride.locked);
+      flash(ride.locked ? "Doors locked: nobody else can get in." : "Doors open: friends can get in.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "The doors would not lock.");
+    }
+  };
+  const askEveryoneOut = async () => {
+    try {
+      await everyoneOut(player.id);
+    } catch {
+      // They get out when the car stops anyway.
+    }
+  };
+  const followDriver = useCallback(() => {
+    if (!ridingWith) return null;
+    return playersRef.current.get(ridingWith.id) ?? null;
+  }, [ridingWith, playersRef]);
 
   // ---- racing -----------------------------------------------------------------------------
   /** How a car drives, from what the dealership says about its model. */
@@ -1544,6 +1641,11 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   return (
     <div className="game">
       <style>{`
+        /* A passenger's bar sits above the say bar; a driver's under the speed dial, clear of the wheel and pedals. */
+        .ride-bar.riding { top: auto; bottom: calc(72px + env(safe-area-inset-bottom)); }
+        .ride-bar { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); top: calc(164px + env(safe-area-inset-top)); display: flex; gap: 8px; align-items: center;
+          background: rgba(20, 20, 24, 0.82); color: #fff; border-radius: 12px; padding: 6px 6px 6px 12px; font: 600 14px/1.3 system-ui, sans-serif; max-width: calc(100vw - 32px); }
+        .ride-bar button { border: 0; border-radius: 8px; background: #f6efe0; color: #2a2018; font-weight: 800; padding: 7px 11px; cursor: pointer; white-space: nowrap; }
         .hud-sound { border: 0; background: rgba(255,255,255,0.14); color: inherit; border-radius: 6px; width: 24px; height: 22px; margin-right: 6px; font-size: 13px; cursor: pointer; padding: 0; vertical-align: middle; }
         .hud-sound[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
         .hud-beta { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; background: #f5c400; color: #1a0b24; border-radius: 4px; padding: 1px 4px; vertical-align: middle; }
@@ -1628,6 +1730,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)}
               frozen={decorating}
               driving={scene.kind === "street" ? driving : null}
+              riding={scene.kind === "street" && ridingWith ? followDriver : null}
             />
           )}
           {shared &&
@@ -1640,6 +1743,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
                 heightAt={heightAt}
                 said={said[entry.id] ?? ""}
                 talking={talking.has(entry.id)}
+                passengers={entry.car ? remotes.filter((other) => other.riding === entry.id).length + (ridingWith?.id === entry.id ? 1 : 0) : 0}
               />
             ))}
           {!indoors && !mapOpen && district && crowd && streetCollider && (
@@ -1816,7 +1920,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
           </button>
         </div>
       )}
-      {!indoors && !panelOpen && !tiedUp && !driving && !nearCar && held === 0 && (nearSeller || doorHere) && !spotHere && (
+      {!indoors && !panelOpen && !tiedUp && !driving && !ridingWith && !nearCar && held === 0 && (nearSeller || doorHere) && !spotHere && (
         <div className="crowd-actions">
           {doorHere && (
             <button type="button" className="give-in" onClick={() => void goThrough(doorHere)} disabled={busy}>
@@ -1864,6 +1968,32 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
 
       {scene.kind === "arena" && !customising && <ArenaHud arena={arena} money={money} />}
 
+      {nearDriver && !panelOpen && !tiedUp && !driving && !ridingWith && (
+        <div className="crowd-actions" style={{ bottom: "calc(200px + env(safe-area-inset-bottom))" }}>
+          <button type="button" className="give-in" onClick={() => void getInWith(nearDriver)} disabled={rideBusy}>
+            Get in with @{nearDriver.username}
+          </button>
+        </div>
+      )}
+      {ridingWith && scene.kind === "street" && !panelOpen && (
+        <div className="ride-bar riding" role="status">
+          <span>In @{ridingWith.name}'s car</span>
+          <button type="button" onClick={() => void getOutOfRide()} disabled={rideBusy}>Get out</button>
+        </div>
+      )}
+      {driving && myPassengers.length > 0 && scene.kind === "street" && !panelOpen && (
+        <div className="ride-bar" role="status">
+          <span>{myPassengers.map((entry) => `@${entry.username}`).join(", ")} {myPassengers.length === 1 ? "is" : "are"} in your car</span>
+          <button type="button" onClick={() => void askEveryoneOut()}>Everyone out</button>
+          <button type="button" onClick={() => void toggleDoors()}>{doorsLocked ? "Unlock" : "Lock"}</button>
+        </div>
+      )}
+      {driving && myPassengers.length === 0 && doorsLocked && scene.kind === "street" && !panelOpen && (
+        <div className="ride-bar" role="status">
+          <span>Doors locked</span>
+          <button type="button" onClick={() => void toggleDoors()}>Unlock</button>
+        </div>
+      )}
       {nearDesk && !race && !panelOpen && !tiedUp && (
         <div className="crowd-actions" style={{ bottom: driving ? "calc(200px + env(safe-area-inset-bottom))" : undefined }}>
           <button type="button" className="give-in" onClick={() => setDeskOpen(true)}>
