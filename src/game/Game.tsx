@@ -76,9 +76,14 @@ import { useWorldSocket } from "./useWorldSocket";
 import { VENUES, isVenue, venueCollider, type Scare, type Special } from "./venues";
 import { Voice, type VoiceState } from "./voice";
 import { useNewVersion } from "./updateCheck";
-import { claimBonus, dropDelivery, fetchJobs, handOver, takeDelivery, type Delivery } from "../api/jobs";
-import { DeliveryHud } from "./DeliveryHud";
-import { StreetMusic, rememberStreetMusic, streetMusicWanted } from "./streetMusic";
+import { claimBonus, dropDelivery, dropFare, dropOff, fetchJobs, handOver, pickUp, takeDelivery, takeFare, type Delivery, type Fare } from "../api/jobs";
+import { DeliveryHud, TaxiHud } from "./DeliveryHud";
+import { FIELD_FILE, StreetMusic, rememberStreetMusic, streetMusicWanted } from "./streetMusic";
+import { fetchRaces, finishRace, giveUpRace, type Race } from "../api/race";
+import { RaceField } from "./RaceField";
+import { RaceDesk, RaceHud, RaceResultSheet } from "./RacePanels";
+import { gridSlot, TRACK } from "./raceTrack";
+import { PYLONS } from "./raceShapes";
 
 // Where everyone starts. The bus takes players to the other districts.
 const FIRST_DISTRICT = "uniben";
@@ -331,6 +336,13 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const [policeStop, setPoliceStop] = useState<PoliceStop | null>(null);
   // Cars: what the player owns, the keys, the dealership's sheet, and the trip at the wheel.
   const [cars, setCars] = useState<Cars | null>(null);
+  // ---- racing at the GRA race field --------------------------------------------------
+  const [race, setRace] = useState<Race | null>(null);
+  const [raceOffset, setRaceOffset] = useState(0);   // the server's clock minus this phone's
+  const [deskOpen, setDeskOpen] = useState(false);
+  const [nearDesk, setNearDesk] = useState(false);
+  const [raceResult, setRaceResult] = useState<{ race: Race; message: string } | null>(null);
+  const settling = useRef(false);
   const [keysOpen, setKeysOpen] = useState(false);
   const [dealerCar, setDealerCar] = useState<string | null>(null);
   const [showColours, setShowColours] = useState<Record<string, string>>({});
@@ -341,6 +353,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [atDoor, setAtDoor] = useState(false);
   const [jobBusy, setJobBusy] = useState(false);
+  const [fare, setFare] = useState<Fare | null>(null);
+  const [atStop, setAtStop] = useState(false);
   const tripCount = useRef(0);
   const stopping = useRef(false);
   const haunt = useMemo(() => new HauntSound(), []);
@@ -423,8 +437,10 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const roadBoxes = useCallback((): Box[] => {
     const boxes = parkedBoxes();
     for (const vehicle of life?.vehicles ?? []) if (vehicle.active) boxes.push(vehicle);
+    // The pylons on the race field stand on four wide legs: a car stops against them.
+    if (district?.id === "gra") for (const [x, z] of PYLONS) boxes.push({ x, z, ux: 1, uz: 0, halfLong: 3.9, halfWide: 3.9 });
     return boxes;
-  }, [life, parkedBoxes]);
+  }, [life, parkedBoxes, district?.id]);
   const outdoorCollider = useMemo(() => {
     if (!district || !streetCollider) return null;
     return withFootbridges(withCars(life ? trafficCollider(streetCollider, life) : streetCollider, parkedBoxes), district);
@@ -704,9 +720,11 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     sendPlace("street");
   };
   useEffect(() => () => music.stop(), [music]);
+  const racing = race !== null;
+  const atField = district?.id === "gra" && (racing || nearDesk);
   useEffect(() => {
-    streetMusic.want(streetSound && scene.kind === "street");
-  }, [streetMusic, streetSound, scene.kind]);
+    streetMusic.want(streetSound && scene.kind === "street", atField ? FIELD_FILE : undefined);
+  }, [streetMusic, streetSound, scene.kind, atField]);
   useEffect(() => () => streetMusic.stop(), [streetMusic]);
   useEffect(() => () => haunt.stop(), [haunt]);
 
@@ -732,6 +750,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       .then(async (jobs) => {
         if (!live) return;
         setDelivery(jobs.delivery);
+        setFare(jobs.fare);
         if (!jobs.bonus_ready) return;
         const bonus = await claimBonus(player.id);
         if (!live) return;
@@ -756,6 +775,52 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     const timer = window.setInterval(check, 300);
     return () => window.clearInterval(timer);
   }, [delivery, scene.kind, district?.id]);
+
+  // A taxi fare: at the passenger's door, then at where they are going.
+  useEffect(() => {
+    if (!fare || scene.kind !== "street" || district?.id !== fare.district) {
+      setAtStop(false);
+      return;
+    }
+    const stop = fare.state === "riding" ? { x: fare.to_x, z: fare.to_z } : { x: fare.from_x, z: fare.from_z };
+    const check = () => setAtStop(Math.hypot(playerFocus.x - stop.x, playerFocus.z - stop.z) < 12);
+    check();
+    const timer = window.setInterval(check, 300);
+    return () => window.clearInterval(timer);
+  }, [fare, scene.kind, district?.id]);
+
+  const taxiJob = async (work: () => Promise<void>, fallback: string) => {
+    if (jobBusy) return;
+    setJobBusy(true);
+    try {
+      await work();
+    } catch (error) {
+      flash(error instanceof Error ? error.message : fallback);
+    } finally {
+      setJobBusy(false);
+    }
+  };
+  const startFare = () => taxiJob(async () => {
+    const found = await takeFare(player.id);
+    setFare(found);
+    flash(`${found.passenger} needs a ride from ${found.from_name} to ${found.to_name}. ₦${found.pay.toLocaleString()}.`);
+  }, "Nobody needs a ride just now.");
+  const fareStep = () => taxiJob(async () => {
+    if (!fare) return;
+    if (fare.state === "waiting") {
+      setFare(await pickUp(player.id));
+      flash(`${fare.passenger} is in. Off to ${fare.to_name}.`);
+    } else {
+      const done = await dropOff(player.id);
+      setMoney(done.money);
+      setFare(null);
+      shout(done.message);
+    }
+  }, "Not here.");
+  const cancelFare = () => taxiJob(async () => {
+    await dropFare(player.id);
+    setFare(null);
+  }, "Could not cancel.");
 
   const startDelivery = async () => {
     if (jobBusy) return;
@@ -877,6 +942,128 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     }
   };
 
+  // ---- racing -----------------------------------------------------------------------------
+  /** How a car drives, from what the dealership says about its model. */
+  const statsOf = useCallback(async (model: string) => {
+    const known = cars ?? (await loadCars());
+    const info = known?.catalogue.find((entry) => entry.id === model);
+    return statsFor(info?.zero_to_100 ?? 9, info?.top_kmh ?? 180, carParts(model));
+  }, [cars, loadCars]);
+
+  // Standing (or sitting at the wheel) by the race desk at the GRA race field.
+  useEffect(() => {
+    if (scene.kind !== "street" || district?.id !== "gra" || race) {
+      setNearDesk(false);
+      return;
+    }
+    const check = () => setNearDesk(Math.hypot(playerFocus.x - TRACK.desk.x, playerFocus.z - TRACK.desk.z) < 10);
+    check();
+    const timer = window.setInterval(check, 300);
+    return () => window.clearInterval(timer);
+  }, [scene.kind, district?.id, race]);
+
+  /** On the grid: in the car, brakes on until the lights go out. */
+  const lineUp = useCallback(async (started: Race) => {
+    if (!streetCollider) return;
+    const offset = started.now_ms - Date.now();
+    const slot = gridSlot(0);
+    setRaceOffset(offset);
+    setRace(started);
+    setDeskOpen(false);
+    setRaceResult(null);
+    drivingCar.current = started.car_id;
+    setDriving({
+      key: ++tripCount.current,
+      look: started.look,
+      stats: await statsOf(started.car_model),
+      x: slot.x,
+      z: slot.z,
+      heading: slot.rot,
+      ground: streetCollider,
+      boxes: roadBoxes,
+      holdUntil: started.go_ms - offset,
+    });
+    setNearCar(false);
+  }, [statsOf, streetCollider, roadBoxes]);
+
+  // Coming back to the game mid-race: carry on with it.
+  useEffect(() => {
+    let live = true;
+    fetchRaces(player.id).then((r) => live && r.current && r.current.state === "racing" && setRace(r.current)).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [player.id]);
+
+  const endRace = useCallback((done: Race, message: string, newMoney?: number) => {
+    setRace(null);
+    setRaceResult({ race: done, message });
+    if (newMoney !== undefined) setMoney(newMoney);
+    // A hired car goes back to the desk: out of it, on foot, where it stopped.
+    if (done.hired && drivingCar.current === done.car_id) {
+      setDriving(null);
+      drivingCar.current = null;
+    }
+    void loadCars();
+  }, [loadCars]);
+
+  // During a race the server counts the checkpoints: ask it how far round the player is.
+  useEffect(() => {
+    if (!race) return;
+    let live = true;
+    const timer = window.setInterval(() => {
+      fetchRaces(player.id)
+        .then(async (r) => {
+          if (!live) return;
+          const now = r.current;
+          if (!now || now.id !== race.id) {
+            // Called off or lost on the server (the time ran out, or it restarted).
+            setRace(null);
+            flash("The race is over.");
+            if (race.hired && drivingCar.current === race.car_id) {
+              setDriving(null);
+              drivingCar.current = null;
+            }
+            return;
+          }
+          setRace(now);
+          if (now.finished && !settling.current) {
+            settling.current = true;
+            try {
+              const result = await finishRace(player.id);
+              if (live) endRace(result.race, result.message, result.money);
+            } catch (error) {
+              flash(error instanceof Error ? error.message : "The result could not be read.");
+              setRace(null);
+            } finally {
+              settling.current = false;
+            }
+          }
+        })
+        .catch(() => {});
+    }, 400);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [race?.id, player.id, flash, endRace]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const quitRace = async () => {
+    const was = race;
+    if (!was) return;
+    try {
+      await giveUpRace(player.id);
+    } catch {
+      // Lost either way.
+    }
+    setRace(null);
+    flash("You pulled out of the race. The entry is lost.");
+    if (was.hired && drivingCar.current === was.car_id) {
+      setDriving(null);
+      drivingCar.current = null;
+    }
+  };
+
   const getInCar = async () => {
     if (carBusy || !myParked || !streetCollider) return;
     setCarBusy(true);
@@ -885,6 +1072,18 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       const known = (cars?.parked ? cars : null) ?? (await loadCars());
       const carId = known?.parked?.car_id;
       if (!carId) throw new Error("That car is not here. Ask your driver to bring it.");
+      if (race && carId === race.car_id && race.hired) {
+        // Back into the hired race car: it is not one of theirs, so the race says what it is.
+        const back = await getIn(player.id, carId);
+        setCars(back);
+        drivingCar.current = carId;
+        setDriving({
+          key: ++tripCount.current, look: race.look, stats: await statsOf(race.car_model),
+          x: myParked.x, z: myParked.z, heading: myParked.rot, ground: streetCollider, boxes: roadBoxes,
+        });
+        setNearCar(false);
+        return;
+      }
       const done = await getIn(player.id, carId);
       const car = done.cars.find((entry) => entry.id === carId);
       if (!car) throw new Error("That car is not yours.");
@@ -1311,7 +1510,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   useEffect(() => () => voice.turnOff(), [voice]);
 
   const roomPanel = wardrobeOpen || storyOpen2 !== null || policeStop !== null;
-  const panelOpen = shop !== null || mapOpen || customising || storyOpen || ride !== null || phoneOpen || roomPanel || keysOpen || dealerCar !== null;
+  const panelOpen = shop !== null || mapOpen || customising || storyOpen || ride !== null || phoneOpen || roomPanel || keysOpen || dealerCar !== null || deskOpen || raceResult !== null;
   // Stopped at a checkpoint: held where they stand until they are let go.
   const policeHold = useMemo(() => (policeStop ? holdAt(null, playerFocus.x, playerFocus.z) : null), [policeStop]);
   // On the bus the server already has the player at the next stop, so nothing is sent
@@ -1380,6 +1579,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         {mapOpen && <CityMap districts={allDistricts} city={city} here={mapHere} picked={pickedPlace} onPick={setPickedPlace} />}
         {!mapOpen && scene.kind === "street" && district && <District data={district} />}
         {!mapOpen && scene.kind === "street" && district && <StreetExtras data={district} onNearDoor={setNearDoor} />}
+        {!mapOpen && scene.kind === "street" && district?.id === "gra" && <RaceField race={race} offset={raceOffset} />}
         {!mapOpen && scene.kind === "street" && <ParkedCars cars={parked} />}
         {!mapOpen && scene.kind === "street" && district && life && <CrowdAndTraffic key={district.id} life={life} crowd={crowd} />}
         {guiding && heading && <Guide key={`${heading.district}:${heading.name}`} x={heading.x} z={heading.z} onDistance={walked} />}
@@ -1462,6 +1662,16 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       )}
       {driving && scene.kind === "street" && !overlay && !panelOpen && <DriveHud onGetOut={() => void getOutOfCar()} busy={carBusy} />}
 
+      {fare && !photo && !panelOpen && scene.kind === "street" && !delivery && (
+        <TaxiHud fare={fare} atStop={atStop} busy={jobBusy} onAct={() => void fareStep()} onDrop={() => void cancelFare()} />
+      )}
+      {driving && (drivingCar.current ?? 0) > 0 && !fare && !race && !delivery && !nearDesk && scene.kind === "street" && !panelOpen && (
+        <div className="crowd-actions" style={{ bottom: "calc(200px + env(safe-area-inset-bottom))" }}>
+          <button type="button" className="give-in" onClick={() => void startFare()} disabled={jobBusy}>
+            Taxi: find a passenger
+          </button>
+        </div>
+      )}
       {delivery && !photo && !panelOpen && scene.kind !== "club" && (
         <DeliveryHud
           key={delivery.id}
@@ -1653,6 +1863,26 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       )}
 
       {scene.kind === "arena" && !customising && <ArenaHud arena={arena} money={money} />}
+
+      {nearDesk && !race && !panelOpen && !tiedUp && (
+        <div className="crowd-actions" style={{ bottom: driving ? "calc(200px + env(safe-area-inset-bottom))" : undefined }}>
+          <button type="button" className="give-in" onClick={() => setDeskOpen(true)}>
+            Race desk: sign up for a race
+          </button>
+        </div>
+      )}
+      {race && driving && scene.kind === "street" && <RaceHud race={race} offset={raceOffset} onQuit={() => void quitRace()} />}
+      {deskOpen && (
+        <RaceDesk
+          playerId={player.id}
+          ownModel={driving && (drivingCar.current ?? 0) > 0 ? readCarLook(driving.look).model : null}
+          ownColour={driving ? readCarLook(driving.look).colour : "black"}
+          busy={carBusy}
+          onStart={(started) => void lineUp(started)}
+          onClose={() => setDeskOpen(false)}
+        />
+      )}
+      {raceResult && <RaceResultSheet race={raceResult.race} message={raceResult.message} onClose={() => setRaceResult(null)} />}
 
       {/* Needs and the player's own clock: always in view, except where they would cover a fight or a form. */}
       {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && !decorating && !driving && <LifeHud life={homeLife.life} />}

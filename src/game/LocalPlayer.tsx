@@ -62,7 +62,12 @@ export type Driving = {
   ground: Collider | null;
   /** The other vehicles round it, read every step. */
   boxes?: () => readonly Box[];
+  /** On a race grid: the brakes stay on until this moment (Date.now() milliseconds). */
+  holdUntil?: number;
 };
+
+// No brake: at a standstill the brake pedal means reverse.
+const HELD = { gas: 0, brake: 0, steer: 0, horn: false };
 
 // Scratch vectors, reused every frame so the render loop allocates nothing.
 const cameraGoal = new Vector3();
@@ -182,7 +187,7 @@ export function LocalPlayer({
     const car = carRef.current;
     if (driving && car) {
       // At the wheel.
-      const input = readPedals();
+      const input = driving.holdUntil !== undefined && Date.now() < driving.holdUntil ? HELD : readPedals();
       drive(car, input, driving.stats, dt, driving.ground, driving.boxes?.() ?? []);
       if (car.hit > 2.5) carSound.thud(car.hit);
       if (input.horn) carSound.hornOn();
