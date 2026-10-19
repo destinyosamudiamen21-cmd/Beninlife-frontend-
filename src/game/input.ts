@@ -13,7 +13,35 @@ export const touchInput = { x: 0, z: 0, sprint: false };
  * player, in radians: 0 looks north (the way the game always used to), and a positive
  * angle carries the camera round towards the east.
  */
-export const cameraInput = { zoom: 1, yaw: 0 };
+export const cameraInput = {
+  zoom: 1,
+  yaw: 0,
+  /** When the player last swung the camera by hand (performance.now()): it stops following them for a moment. */
+  turnedAt: -1e9,
+  /** Behind the player ("third") or through their eyes ("first"); in a car, "first" is the driver's seat. */
+  view: readView(),
+};
+
+export type View = "third" | "first";
+
+function readView(): View {
+  try {
+    return window.localStorage.getItem("beninlife.view") === "first" ? "first" : "third";
+  } catch {
+    return "third";
+  }
+}
+
+/** Switch between the view from behind and the view through the player's eyes. Remembered in this browser. */
+export function switchView(): View {
+  cameraInput.view = cameraInput.view === "first" ? "third" : "first";
+  try {
+    window.localStorage.setItem("beninlife.view", cameraInput.view);
+  } catch {
+    // not remembered: back to the view from behind next time
+  }
+  return cameraInput.view;
+}
 export const creatorInput = { spin: 0 };
 
 export function setZoom(value: number): void {
@@ -22,7 +50,10 @@ export function setZoom(value: number): void {
 
 /** Swing the camera round the player by this many radians. */
 export function turnCamera(by: number): void {
-  if (Number.isFinite(by)) cameraInput.yaw = wrapAngle(cameraInput.yaw + by);
+  if (Number.isFinite(by)) {
+    cameraInput.yaw = wrapAngle(cameraInput.yaw + by);
+    cameraInput.turnedAt = performance.now();
+  }
 }
 
 /** Put the camera back behind the player, looking north. */

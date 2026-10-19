@@ -13,6 +13,7 @@ export type CarModelInfo = {
   price: number;
   engine: string;
   zero_to_100: number;
+  vip?: boolean;       // sold in the VIP lounge
   top_kmh: number;
   seats: number;
   blurb: string;
@@ -91,4 +92,9 @@ export function setDoors(playerId: string, locked: boolean): Promise<Ride> {
 
 export function everyoneOut(playerId: string): Promise<Ride> {
   return request<Ride>(`/players/${playerId}/car/everyone-out`, { method: "POST" });
+}
+
+/** Off the end of a main road into the next district, still driving. */
+export function driveAcross(playerId: string, linkId: string): Promise<Cars> {
+  return request<Cars>(`/players/${playerId}/drive-across/${linkId}`, { method: "POST" });
 }

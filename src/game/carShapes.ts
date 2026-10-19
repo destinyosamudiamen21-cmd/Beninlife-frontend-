@@ -17,6 +17,7 @@
 export const CAR_COLOURS: Record<string, string> = {
   black: "#0d0e10", white: "#e9e8e3", silver: "#a9adb1", grey: "#4b5056", wine: "#4a0f19",
   navy: "#14213d", gold: "#b9a07a", red: "#8f0e12", green: "#173a2a",
+  orange: "#d9480f", lime: "#6a9a12", chalk: "#b9b6ad", blue: "#1f4fa8",
 };
 
 export type Mat =
@@ -79,6 +80,12 @@ export type CarSpec = {
   rim: { style: RimStyle; spokes: number; colour: "silver" | "dark" | "black" | "chrome" };
   caliper: string;
   endRound: number;        // metres over which the ends round off
+  /** A rear wing on two uprights: its height, where it sits (0 back .. 1 front), how wide, how deep. */
+  wing?: { y: number; at: number; w: number; chord: number };
+  /** Black air intakes in the sides behind the doors, as on a mid-engined car. */
+  intakes?: boolean;
+  /** Two seats only: no back bench. */
+  twoSeat?: boolean;
 };
 
 // ---- the eight cars ----------------------------------------------------------------------
@@ -168,6 +175,80 @@ export const CAR_SPECS: Record<string, CarSpec> = {
     heads: { w: 0.46, h: 0.13, y: 0.9, style: "slim" },
     tails: { w: 0.5, h: 0.12, y: 1.04, style: "bar" },
     rim: { style: "five", spokes: 5, colour: "silver" }, caliper: "#555a60", endRound: 0.15,
+  },
+  // ---- the VIP corner: the dearest cars in Benin --------------------------------------------
+  // The German coupé SUV with the big engine: tall nose, roof sloping all the way down to the tail.
+  falke_sx63: {
+    length: 4.94, width: 2.0, wheelbase: 2.93, frontOverhang: 0.95, wheelR: 0.38, rimR: 0.28, tyreW: 0.28, clearance: 0.18,
+    top: [[0, 1.05], [0.04, 1.12], [0.1, 1.22], [0.3, 1.6], [0.58, 1.69], [0.71, 1.22], [0.88, 1.12], [1, 0.94]],
+    belt: [[0, 1.12], [0.15, 1.14], [0.72, 1.1], [1, 1.0]],
+    backlight: [0.1, 0.3], windshield: [0.58, 0.71], roofW: 0.8, crown: 0.03,
+    chromeLine: false,
+    grille: { w: 0.78, h: 0.34, y: 0.74, style: "bars" },
+    heads: { w: 0.46, h: 0.12, y: 0.9, style: "slim" },
+    tails: { w: 0.52, h: 0.1, y: 1.04, style: "bar" },
+    rim: { style: "five", spokes: 5, colour: "black" }, caliper: "#c8161c", endRound: 0.15,
+  },
+  // The German rear-engined track car: round eyes, a fastback, and a wing you can see from Ring Road.
+  ravello_rs: {
+    length: 4.57, width: 1.9, wheelbase: 2.46, frontOverhang: 0.98, wheelR: 0.35, rimR: 0.26, tyreW: 0.3, clearance: 0.1,
+    top: [[0, 0.82], [0.06, 0.98], [0.18, 1.06], [0.4, 1.27], [0.55, 1.29], [0.68, 1.0], [0.86, 0.86], [1, 0.62]],
+    belt: [[0, 0.9], [0.2, 0.94], [0.68, 0.88], [1, 0.74]],
+    backlight: [0.18, 0.4], windshield: [0.55, 0.68], roofW: 0.72, crown: 0.04,
+    grille: { w: 0.9, h: 0.12, y: 0.32, style: "wide" },
+    heads: { w: 0.3, h: 0.2, y: 0.74, style: "round" },
+    tails: { w: 0.62, h: 0.06, y: 0.9, style: "bar" },
+    rim: { style: "five", spokes: 5, colour: "dark" }, caliper: "#f2c200", endRound: 0.2,
+    wing: { y: 1.42, at: 0.05, w: 1.72, chord: 0.36 }, twoSeat: true,
+  },
+  // The Italian wedge: a knife of a nose, the cabin pushed forward, intakes like gills.
+  vento_saetta: {
+    length: 4.95, width: 2.05, wheelbase: 2.78, frontOverhang: 1.05, wheelR: 0.35, rimR: 0.26, tyreW: 0.31, clearance: 0.1,
+    top: [[0, 0.86], [0.08, 0.96], [0.25, 1.03], [0.42, 1.12], [0.55, 1.13], [0.66, 0.92], [0.84, 0.78], [1, 0.55]],
+    belt: [[0, 0.88], [0.25, 0.94], [0.66, 0.86], [1, 0.66]],
+    backlight: [0.25, 0.42], windshield: [0.55, 0.7], roofW: 0.62, crown: 0.03,
+    grille: { w: 1.1, h: 0.14, y: 0.28, style: "wide" },
+    heads: { w: 0.42, h: 0.06, y: 0.6, style: "slim" },
+    tails: { w: 0.5, h: 0.05, y: 0.8, style: "bar" },
+    rim: { style: "blade", spokes: 10, colour: "black" }, caliper: "#ff6f00", endRound: 0.12,
+    intakes: true, twoSeat: true, wing: { y: 1.08, at: 0.03, w: 1.6, chord: 0.22 },
+  },
+  // The French hypercar: a horseshoe of a grille, a swoop down the side, and nothing faster in the city.
+  valmont_noir: {
+    length: 4.55, width: 2.04, wheelbase: 2.71, frontOverhang: 0.98, wheelR: 0.36, rimR: 0.27, tyreW: 0.31, clearance: 0.11,
+    top: [[0, 0.88], [0.08, 1.0], [0.24, 1.08], [0.42, 1.2], [0.56, 1.21], [0.68, 1.0], [0.86, 0.88], [1, 0.66]],
+    belt: [[0, 0.9], [0.24, 0.96], [0.68, 0.9], [1, 0.74]],
+    backlight: [0.24, 0.42], windshield: [0.56, 0.68], roofW: 0.66, crown: 0.04,
+    grille: { w: 0.36, h: 0.34, y: 0.52, style: "mesh" },
+    heads: { w: 0.4, h: 0.07, y: 0.68, style: "slim" },
+    tails: { w: 0.7, h: 0.05, y: 0.86, style: "bar" },
+    rim: { style: "mesh", spokes: 12, colour: "dark" }, caliper: "#1e5bb8", endRound: 0.18,
+    intakes: true, twoSeat: true,
+  },
+  // The German mid-engined V10: low, wide, a blade behind the doors.
+  ostra_r10: {
+    length: 4.43, width: 1.94, wheelbase: 2.65, frontOverhang: 0.97, wheelR: 0.35, rimR: 0.26, tyreW: 0.29, clearance: 0.11,
+    top: [[0, 0.95], [0.08, 1.05], [0.25, 1.12], [0.42, 1.22], [0.56, 1.24], [0.68, 1.0], [0.86, 0.85], [1, 0.66]],
+    belt: [[0, 0.96], [0.25, 1.0], [0.68, 0.92], [1, 0.76]],
+    backlight: [0.25, 0.42], windshield: [0.56, 0.68], roofW: 0.68, crown: 0.035,
+    grille: { w: 0.9, h: 0.3, y: 0.5, style: "mesh" },
+    heads: { w: 0.42, h: 0.08, y: 0.7, style: "slim" },
+    tails: { w: 0.48, h: 0.07, y: 0.88, style: "bar" },
+    rim: { style: "five", spokes: 5, colour: "dark" }, caliper: "#c8161c", endRound: 0.15,
+    intakes: true, twoSeat: true,
+  },
+  // The German sports coupé on the track spec: tall twin grille, carbon roof, a lip of a wing.
+  bauer_s4: {
+    length: 4.8, width: 1.89, wheelbase: 2.86, frontOverhang: 0.88, wheelR: 0.35, rimR: 0.25, tyreW: 0.27, clearance: 0.12,
+    top: [[0, 0.96], [0.06, 1.02], [0.16, 1.04], [0.36, 1.36], [0.55, 1.38], [0.7, 0.98], [0.88, 0.88], [1, 0.72]],
+    belt: [[0, 0.96], [0.18, 0.98], [0.7, 0.92], [1, 0.8]],
+    backlight: [0.16, 0.36], windshield: [0.55, 0.7], roofW: 0.74, crown: 0.035,
+    blackRoof: true,
+    grille: { w: 0.52, h: 0.38, y: 0.58, style: "slats" },
+    heads: { w: 0.42, h: 0.1, y: 0.72, style: "slim" },
+    tails: { w: 0.44, h: 0.12, y: 0.88, style: "corners" },
+    rim: { style: "split", spokes: 5, colour: "black" }, caliper: "#1e5bb8", endRound: 0.15,
+    wing: { y: 1.1, at: 0.035, w: 1.4, chord: 0.2 },
   },
   // The Japanese flagship SUV: tall as a wall, upright, a big chrome-ringed grille.
   lumea_rs: {
@@ -275,6 +356,19 @@ class Builder {
 // ---- the body -----------------------------------------------------------------------------
 
 const HALF = 10;   // points in half a slice, from the middle underneath round to the middle of the roof
+
+/** Height of the car's top line at a point along it (z from the centre, front is +z). */
+function roofAt(spec: CarSpec, z: number): number {
+  const f = Math.min(1, Math.max(0, (z + spec.length / 2) / spec.length));
+  const top = spec.top;
+  for (let i = 1; i < top.length; i++) {
+    if (f <= top[i][0]) {
+      const [f0, y0] = top[i - 1], [f1, y1] = top[i];
+      return y0 + ((y1 - y0) * (f - f0)) / Math.max(1e-6, f1 - f0);
+    }
+  }
+  return top[top.length - 1][1];
+}
 
 type Slice = { z: number; pts: [number, number][]; green: number; zone: "deck" | "backlight" | "roof" | "windshield" | "hood"; end: number };
 
@@ -720,6 +814,26 @@ function details(
     b.box("trim", 0, s.pts[9][1] + 0.012, z, 0.018, 0.022, 0.07);
     b.box("trim", 0, s.pts[9][1] + 0.035, z - 0.02, 0.012, 0.012, 0.04);
   }
+  // A rear wing: two uprights off the deck, the blade on top, end plates at its tips.
+  if (spec.wing) {
+    const z = -L / 2 + spec.wing.at * L + spec.wing.chord / 2 + 0.08;
+    const deck = sliceAt(z).pts[9][1];
+    const { y, w, chord } = spec.wing;
+    for (const side of [1, -1]) b.box("trim", side * w * 0.26, (deck + y) / 2, z, 0.025, (y - deck) / 2, 0.06);
+    b.box("trim", 0, y, z, w / 2, 0.022, chord / 2);
+    for (const side of [1, -1]) b.box("trim", side * w / 2, y - 0.04, z, 0.012, 0.09, chord / 2 + 0.02);
+  }
+  // Air intakes in the sides, just in front of the back wheels.
+  if (spec.intakes) {
+    const z = rearAxle + archR + 0.35;
+    const s = sliceAt(z);
+    const lowY = s.pts[3][1], highY = s.pts[5][1];
+    for (const side of [1, -1]) {
+      const x = side * (s.pts[4][0] + 0.004);
+      b.box("grille", x, (lowY + highY) / 2, z, 0.012, (highY - lowY) * 0.42, 0.32, 0);
+      b.box("trim", x, highY - 0.02, z + 0.05, 0.015, 0.025, 0.4, 0);
+    }
+  }
   // Inside: the dashboard, the seats and the steering wheel, seen through the glass.
   const cowl = -L / 2 + spec.windshield[1] * L;
   const sb = sliceAt(cowl - 0.25);
@@ -727,13 +841,17 @@ function details(
   const beltY = sb.pts[5][1];
   b.box("interior", 0, beltY - 0.09, cowl - 0.32, spec.width / 2 - 0.12, 0.09, 0.18);
   const seatZ = cowl - 0.95;
+  // Low supercars: squash the seat backs so the headrests stay under the roof.
+  const sk = Math.min(1, (roofAt(spec, seatZ - 0.26) - 0.1 - floorY) / 1.01);
   for (const x of [0.38, -0.38]) {
     b.box("seat", x, floorY + 0.22, seatZ, 0.25, 0.07, 0.26);
-    b.box("seat", x, floorY + 0.55, seatZ - 0.26, 0.24, 0.32, 0.06, 0);
-    b.box("seat", x, floorY + 0.92, seatZ - 0.26, 0.13, 0.09, 0.05);
+    b.box("seat", x, floorY + 0.55 * sk, seatZ - 0.26, 0.24, 0.32 * sk, 0.06, 0);
+    b.box("seat", x, floorY + 0.92 * sk, seatZ - 0.26, 0.13, 0.09 * sk, 0.05);
   }
-  b.box("seat", 0, floorY + 0.22, seatZ - 0.95, spec.width / 2 - 0.2, 0.07, 0.25);
-  b.box("seat", 0, floorY + 0.55, seatZ - 1.2, spec.width / 2 - 0.22, 0.3, 0.06);
+  if (!spec.twoSeat) {
+    b.box("seat", 0, floorY + 0.22, seatZ - 0.95, spec.width / 2 - 0.2, 0.07, 0.25);
+    b.box("seat", 0, floorY + 0.55, seatZ - 1.2, spec.width / 2 - 0.22, 0.3, 0.06);
+  }
   // The steering wheel: a ring of short boxes, on the left (the driver's side).
   {
     const cx = 0.38, cy = beltY + 0.02, cz = cowl - 0.52, r = 0.18;
@@ -859,7 +977,8 @@ export function carParts(model: string): CarParts {
     body: b.mesh(),
     wheel: buildWheel(spec),
     wheels,
-    seat: { x: 0.38, y: spec.clearance + 0.48, z: cowl - 0.95 },
+    // Eyes sit 0.66 above the seat; keep them a hand's width under the roof in the low cars.
+    seat: { x: 0.38, y: Math.min(spec.clearance + 0.48, roofAt(spec, cowl - 0.95) - 0.16 - 0.66), z: cowl - 0.95 },
     length: spec.length,
     width: spec.width,
     height: Math.max(...spec.top.map((k) => k[1])),

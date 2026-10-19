@@ -23,6 +23,7 @@ const STYLE = `
   .car-swatch { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #c9bca8; padding: 0; cursor: pointer; }
   .car-swatch[aria-pressed="true"] { box-shadow: 0 0 0 3px #2a2018; }
   .car-price { font-size: 22px; font-weight: 800; color: #2a2018; margin: 6px 0; }
+  .car-vip { margin: 6px 0 0; font-size: 12px; font-weight: 800; letter-spacing: .04em; color: #b8862b; }
   .car-list { display: grid; gap: 10px; }
   .car-item { display: grid; grid-template-columns: 96px 1fr; gap: 10px; align-items: center; background: #f6efe3; border-radius: 12px; padding: 8px; }
   .car-item strong { display: block; font-size: 14px; }
@@ -167,6 +168,7 @@ export function DealerPanel({ playerId, model, colour, onColour, onBought, onClo
               ))}
             </div>
             <p className="sheet-small">{colours.find((entry) => entry.id === chosen)?.name}</p>
+            {info.vip && <p className="car-vip">VIP lounge · only for serious money</p>}
             <div className="car-price">{naira(info.price)}</div>
             {bought ? (
               <p className="sheet-good">
@@ -312,7 +314,7 @@ function HoldButton({ className, label, onHold, children }: { className: string;
 }
 
 /** At the wheel: steering on the left, the pedals on the right, the speed in the middle. */
-export function DriveHud({ onGetOut, busy }: { onGetOut: () => void; busy: boolean }) {
+export function DriveHud({ onGetOut, busy, taxi, onTaxi }: { onGetOut: () => void; busy: boolean; taxi?: boolean; onTaxi?: () => void }) {
   const speed = useRef<HTMLElement>(null);
   const gear = useRef<HTMLElement>(null);
   const left = useRef(false), right = useRef(false);
@@ -345,6 +347,11 @@ export function DriveHud({ onGetOut, busy }: { onGetOut: () => void; busy: boole
         <button type="button" className="drive-out" onClick={onGetOut} disabled={busy}>
           {busy ? "…" : "Get out"}
         </button>
+        {onTaxi && (
+          <button type="button" className="drive-out" aria-pressed={taxi} onClick={onTaxi} style={taxi ? { background: "#f2c200" } : undefined}>
+            {taxi ? "Taxi: on" : "Taxi: off"}
+          </button>
+        )}
         <HoldButton className="drive-horn" label="Horn" onHold={(on) => { pedalInput.horn = on; }}>HORN</HoldButton>
       </div>
       <div className="drive-pedals">

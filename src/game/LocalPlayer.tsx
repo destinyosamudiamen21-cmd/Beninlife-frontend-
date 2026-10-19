@@ -4,13 +4,16 @@ import { Vector3, type Group } from "three";
 import type { Look } from "../api/appearance";
 import { Overhead, SprayedNotes } from "./BodyExtras";
 import { Car, type CarMotion } from "./Car";
+import { carParts, readCarLook } from "./carShapes";
+import { holeAt, type Pothole, type Potholes } from "./potholes";
+import { wrapAngle } from "./gestures";
 import { doorSpot, drive, driveView, kmh, newCar, type Box, type CarState, type CarStats } from "./carPhysics";
 import { carSound } from "./carSound";
 import { Character } from "./Character";
 import type { Collider, Point } from "./collision";
 import { danceTurn, fightClock, moveNow, stepSpeed, type FightPose, type Hold } from "./fightMoves";
 import { cameraView, playerDrag, playerFocus, playerStreet } from "./focus";
-import { CAMERA_FOV, attachKeyboard, cameraInput, creatorInput, readMove, readPedals, readTurn, releasePedals, turnCamera } from "./input";
+import { CAMERA_FOV, attachKeyboard, cameraInput, creatorInput, readMove, readPedals, readTurn, releasePedals, turnCamera, type View } from "./input";
 import type { NetPlayer } from "./types";
 
 const WALK_SPEED = 2;            // m/s, a brisk walk for a 1.75 m person
@@ -48,6 +51,10 @@ const CHASE_BACK = 6.4;
 const CHASE_HEIGHT = 2.5;
 const CHASE_SWING = 3.2;          // how quickly the camera gets back behind the car
 const CHASE_AHEAD = 4;            // metres in front of the car the camera looks at
+const FOLLOW_RATE = 1.6;          // how quickly the camera swings back behind a player walking away from it
+const FOLLOW_PAUSE_MS = 1500;     // after the player swings the camera by hand, it leaves it alone this long
+const EYE_HEIGHT = 1.62;          // through the player's eyes
+const SEAT_EYE = 0.66;            // in a car: eyes above the seat cushion
 const DRIVE_RECONCILE = 30;       // metres the server must disagree by before it wins (the car moves fast)
 
 /** The player is at the wheel of this car. A new `key` is a new trip. */
@@ -64,6 +71,8 @@ export type Driving = {
   boxes?: () => readonly Box[];
   /** On a race grid: the brakes stay on until this moment (Date.now() milliseconds). */
   holdUntil?: number;
+  /** The holes in this district's roads. */
+  holes?: Potholes;
 };
 
 // No brake: at a standstill the brake pedal means reverse.
@@ -107,7 +116,22 @@ type Props = {
   driving?: Driving | null;
   /** Set while the player is a passenger: where the car they are in is now. */
   riding?: (() => { x: number; z: number; rot: number } | null) | null;
+  /** The car a passenger sits in, "model|colour|plate": where their seat is, for the view from inside. */
+  ridingLook?: string;
+  /** From behind the player, or through their eyes. */
+  view?: View;
 };
+
+/** Where a pair of eyes in a car's seat is, in the world: the driver's seat, or the one beside it. */
+function seatEye(look: string, x: number, z: number, heading: number, passenger: boolean, out: Vector3): void {
+  const seat = carParts(readCarLook(look).model).seat;
+  const side = passenger ? -seat.x : seat.x;
+  out.set(
+    x + side * Math.cos(heading) + (seat.z + 0.05) * Math.sin(heading),
+    seat.y + SEAT_EYE,
+    z - side * Math.sin(heading) + (seat.z + 0.05) * Math.cos(heading),
+  );
+}
 
 function shortestAngle(from: number, to: number): number {
   const diff = to - from;
@@ -116,7 +140,7 @@ function shortestAngle(from: number, to: number): number {
 
 export function LocalPlayer({
   start, sendMove, takeServerPosition, look, customising, collider, fight, hold, said = "", out = false, spraying = false, orbit = false, frozen = false,
-  driving = null, riding = null,
+  driving = null, riding = null, ridingLook = "", view = "third",
 }: Props) {
   const bodyRef = useRef<Group>(null);
   const speedRef = useRef(0);
@@ -133,6 +157,8 @@ export function LocalPlayer({
   const statsRef = useRef<CarStats | null>(null);
   const motion = useMemo<CarMotion>(() => ({ spin: 0, steer: 0, brake: 0 }), []);
   const drivingKey = driving ? driving.key : null;
+  const jolt = useRef(0);                       // how hard the car is shaking from the last hole, 0..1.5
+  const lastHole = useRef<Pothole | null>(null);
   useEffect(() => {
     const body = bodyRef.current;
     if (driving) {
@@ -208,6 +234,17 @@ export function LocalPlayer({
       const yaw = yawRef.current;
       cameraView.yaw = yaw;
       const zoom = cameraInput.zoom;
+      if (view === "first" && ridingLook) {
+        // From the passenger seat, looking out of the windscreen.
+        const heading = body.rotation.y;
+        seatEye(ridingLook, x, z, heading, true, cameraGoal);
+        lookGoal.set(cameraGoal.x + Math.sin(heading) * 20, cameraGoal.y - 0.6, cameraGoal.z + Math.cos(heading) * 20);
+        camera.position.copy(cameraGoal);
+        lookNow.copy(lookGoal);
+        camera.lookAt(lookNow);
+        cameraReady.current = true;
+        return;
+      }
       cameraGoal.set(x + Math.sin(yaw) * CHASE_BACK * zoom, CHASE_HEIGHT * Math.pow(zoom, 0.85), z + Math.cos(yaw) * CHASE_BACK * zoom);
       lookGoal.set(x - Math.sin(yaw) * CHASE_AHEAD, 1.0, z - Math.cos(yaw) * CHASE_AHEAD);
       const ease = 1 - Math.exp(-dt * CAMERA_SMOOTHING * 1.6);
@@ -221,6 +258,25 @@ export function LocalPlayer({
       // At the wheel.
       const input = driving.holdUntil !== undefined && Date.now() < driving.holdUntil ? HELD : readPedals();
       drive(car, input, driving.stats, dt, driving.ground, driving.boxes?.() ?? []);
+      // Benin roads: a wheel into a pothole jolts the car, costs it speed and bangs. Slowly
+      // through it is a bump; fast through a deep one hurts.
+      if (driving.holes) {
+        const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+        const half = driving.stats.wheelbase / 2, side = driving.stats.width * 0.38;
+        let hit: Pothole | null = null;
+        for (const [a, b] of [[half, side], [half, -side], [-half, side], [-half, -side]]) {
+          hit = holeAt(driving.holes, car.x + fx * a + fz * b, car.z + fz * a - fx * b);
+          if (hit) break;
+        }
+        if (hit && hit !== lastHole.current && Math.abs(car.speed) > 2.5) {
+          const hard = Math.min(1, Math.abs(car.speed) / 16) * (hit.deep ? 1.4 : 1);
+          car.speed *= 1 - (hit.deep ? 0.3 : 0.16) * Math.min(1, hard + 0.3);
+          jolt.current = Math.max(jolt.current, hard);
+          carSound.thud(2.5 + hard * 7);
+        }
+        lastHole.current = hit;
+      }
+      jolt.current *= Math.exp(-dt * 7);
       if (car.hit > 2.5) carSound.thud(car.hit);
       if (input.horn) carSound.hornOn();
       else carSound.hornOff();
@@ -235,7 +291,9 @@ export function LocalPlayer({
         car.z = server.z;
         car.speed = 0;
       }
-      body.position.set(car.x, 0, car.z);
+      // The car bounces on its springs after a hole.
+      const bounce = jolt.current * 0.07 * Math.sin(performance.now() / 22);
+      body.position.set(car.x, bounce, car.z);
       body.rotation.y = car.heading;
       speedRef.current = 0;
       driveView.kmh = kmh(car);
@@ -250,6 +308,24 @@ export function LocalPlayer({
       playerStreet.z = car.z;
       playerStreet.up = false;
 
+      // From the driver's seat: the dashboard, the wheel and the road through the windscreen.
+      if (view === "first") {
+        seatEye(driving.look, car.x, car.z, car.heading, false, cameraGoal);
+        cameraGoal.y += bounce * 1.6;
+        lookGoal.set(cameraGoal.x + Math.sin(car.heading) * 20, cameraGoal.y - 0.7 + bounce * 4, cameraGoal.z + Math.cos(car.heading) * 20);
+        camera.position.copy(cameraGoal);
+        lookNow.copy(lookGoal);
+        camera.lookAt(lookNow);
+        yawRef.current = car.heading + Math.PI;
+        cameraView.yaw = yawRef.current;
+        cameraReady.current = true;
+        sendTimer.current += dt;
+        if (sendTimer.current >= SEND_INTERVAL) {
+          sendTimer.current = 0;
+          sendMove(car.x, car.z, car.heading);
+        }
+        return;
+      }
       // The chase camera.
       yawRef.current += shortestAngle(yawRef.current, car.heading + Math.PI) * (1 - Math.exp(-dt * CHASE_SWING));
       const yaw = yawRef.current;
@@ -258,7 +334,7 @@ export function LocalPlayer({
       const fast = Math.min(Math.abs(car.speed), 40);
       const back = (CHASE_BACK + fast * 0.05) * zoom;
       const up = CHASE_HEIGHT * Math.pow(zoom, 0.85) + fast * 0.015;
-      cameraGoal.set(car.x + Math.sin(yaw) * back, up, car.z + Math.cos(yaw) * back);
+      cameraGoal.set(car.x + Math.sin(yaw) * back, up + bounce * 2, car.z + Math.cos(yaw) * back);
       lookGoal.set(car.x - Math.sin(yaw) * CHASE_AHEAD, 1.0, car.z - Math.cos(yaw) * CHASE_AHEAD);
       if (cameraReady.current) {
         const ease = 1 - Math.exp(-dt * CAMERA_SMOOTHING * 1.6);
@@ -326,6 +402,14 @@ export function LocalPlayer({
         // is slower than running free, and pushing straight into one is standing still.
         speed = Math.min(pace, Math.hypot(spot.x - fromX, spot.z - fromZ) / dt);
         facing = Math.atan2(goX, goZ);
+        // Walking away from the camera, it swings round behind them, as in most phone games.
+        // Walking sideways it stays put (or they would walk in circles), and for a moment
+        // after they turn it by hand it leaves it where they put it.
+        const away = Math.max(0, -input.z / length);
+        if (swinging && view === "third" && away > 0.3 && performance.now() - cameraInput.turnedAt > FOLLOW_PAUSE_MS) {
+          const behind = facing + Math.PI;
+          cameraInput.yaw = wrapAngle(cameraInput.yaw + shortestAngle(cameraInput.yaw, behind) * (1 - Math.exp(-dt * FOLLOW_RATE * away)));
+        }
       }
     }
 
@@ -371,6 +455,11 @@ export function LocalPlayer({
       const side = wide ? (CREATOR_PANEL_WIDTH / 2) * metresPerPixel : 0;
       cameraGoal.set(x + side, y + shot.height, z + shot.distance);
       lookGoal.set(x + side, y + shot.lookHeight, z);
+    } else if (view === "first") {
+      // Through their eyes: where the camera would be looking from behind, but from their head.
+      cameraGoal.set(x, y + EYE_HEIGHT, z);
+      lookGoal.set(x - sin * 10, y + EYE_HEIGHT - 0.25, z - cos * 10);
+      if (facing === null) body.rotation.y = yaw + Math.PI;
     } else {
       const zoom = playerStreet.up ? Math.min(cameraInput.zoom, COVERED_ZOOM) : cameraInput.zoom;
       const lift = (CAMERA_HEIGHT - CAMERA_LOOK_HEIGHT) * Math.pow(zoom, CAMERA_LIFT);
@@ -403,10 +492,10 @@ export function LocalPlayer({
   return (
     <group ref={bodyRef} position={[start.x, 0, start.z]}>
       {/* Kept loaded while driving, only hidden, so getting out does not wait for the body again. */}
-      <group visible={!driving && !riding}>
+      <group visible={!driving && !riding && (view !== "first" || Boolean(hold) || customising)}>
         <Character speedRef={speedRef} look={look} fight={fight} />
       </group>
-      {driving && <Car look={driving.look} motion={motion} driver={look} />}
+      {driving && <Car look={driving.look} motion={motion} driver={view === "first" ? null : look} />}
       {spraying && !driving && <SprayedNotes />}
       <Overhead said={said} out={out} />
     </group>

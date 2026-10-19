@@ -699,3 +699,14 @@ button:disabled {
   background: #2f6f5e;
   color: #fff;
 }
+
+/* Shown while the game downloads after sign-in. */
+.gate-loading {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #1c1512;
+  color: #e2b657;
+  font: 800 18px/1.2 system-ui, sans-serif;
+}

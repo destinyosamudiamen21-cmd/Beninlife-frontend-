@@ -1051,14 +1051,19 @@ function zoo(): VenueLayout {
 const SHOW_SIZE: Record<string, [number, number]> = {
   kaze_sprint: [4.6, 1.8], kaze_muscle: [4.85, 1.85], falke_kx: [4.6, 1.9], falke_c40: [4.75, 1.85],
   kaze_corvana24: [4.95, 1.88], falke_e5: [5.0, 1.92], falke_gx: [4.98, 2.05], lumea_rs: [5.15, 2.02],
+  bauer_s4: [4.85, 1.93], falke_sx63: [5.0, 2.04], ravello_rs: [4.62, 1.94], ostra_r10: [4.48, 1.98],
+  vento_saetta: [5.0, 2.09], valmont_noir: [4.6, 2.08],
 };
 const SHOW_NAMES: Record<string, string> = {
   kaze_sprint: "Kaze Sprint", kaze_muscle: "Kaze Corvana \"Muscle\"", falke_kx: "Falke KX 350", falke_c40: "Falke C 40 Sport",
   kaze_corvana24: "Kaze Corvana XSE", falke_e5: "Falke E 5", falke_gx: "Falke GX 450", lumea_rs: "Lumea RS 600",
+  bauer_s4: "Bauer S4 Track", falke_sx63: "Falke SX 63 Coupé", ravello_rs: "Ravello R9 RS", ostra_r10: "Ostra R10 Plus",
+  vento_saetta: "Vento Saetta SV", valmont_noir: "Valmont Noir 1600",
 };
 
 function dealer(): VenueLayout {
-  const width = 40, depth = 26;
+  // The showroom is the left 40 m; through the arch on the right is the VIP lounge.
+  const width = 64, depth = 26;
   const gold = "#b8862b";
   const cars: ShowCar[] = [
     // The back row, nose out, under the lights.
@@ -1072,6 +1077,13 @@ function dealer(): VenueLayout {
     { model: "kaze_corvana24", colour: "red", x: 5.8, z: 16.2, rot: 0.45 },
     { model: "falke_e5", colour: "black", x: 34.2, z: 16.2, rot: -0.45 },
     { model: "falke_gx", colour: "grey", x: 27.6, z: 21.8, rot: -1.15 },
+    // ---- VIP: black marble, gold light, the hypercar on its own turntable.
+    { model: "bauer_s4", colour: "chalk", x: 45.5, z: 6.5, rot: 0 },
+    { model: "ravello_rs", colour: "chalk", x: 52, z: 6.5, rot: 0 },
+    { model: "ostra_r10", colour: "red", x: 58.5, z: 6.5, rot: 0 },
+    { model: "falke_sx63", colour: "chalk", x: 45.8, z: 19.2, rot: 0.5 },
+    { model: "vento_saetta", colour: "lime", x: 52.2, z: 19.6, rot: 0.25 },
+    { model: "valmont_noir", colour: "blue", x: 59.2, z: 16.8, rot: -0.7, turntable: true },
   ];
   const boxes: Box[] = [
     // The stand under the flagship, with a gold ring of light round its edge.
@@ -1092,6 +1104,24 @@ function dealer(): VenueLayout {
     solid(9, 22.8, 1.1, 0.55, 0.42, "#c9c6bf"),
     ...plant(1.2, 24.6), ...plant(38.8, 24.6), ...plant(1.2, 1.2), ...plant(38.8, 1.2),
     solid(14.2, 24.8, 0.25, 0.25, 1.2, "#e9eef2"),
+    // ---- the VIP lounge: a wall with an arch, black floor, gold everywhere.
+    solid(40, 6.5, 0.2, 6.5, 5.6, "#141418"),                 // the wall, back half
+    solid(40, 25.6, 0.2, 0.4, 5.6, "#141418"),                // and a stub by the front wall
+    deco(40, 19, 0.24, 6.2, 4.4, 5.6, "#141418"),             // over the arch
+    glow(40, 19, 0.26, 6.0, 4.36, 4.42, gold),
+    deco(52, 13, 11.9, 12.9, 0.004, 0.02, "#111114"),          // black marble floor
+    ...[45.5, 52, 58.5].map((x) => deco(x, 6.5, 1.6, 3.0, 0.02, 0.08, "#2a2a30")),
+    ...[45.5, 52, 58.5].map((x) => glow(x, 6.5, 1.65, 3.05, 0.05, 0.075, gold)),
+    deco(45.8, 19.2, 1.6, 3.0, 0.02, 0.08, "#2a2a30"), deco(52.2, 19.6, 1.6, 3.0, 0.02, 0.08, "#2a2a30"),
+    deco(59.2, 16.8, 3.0, 3.0, 0.02, 0.14, "#1d1d22"),
+    glow(59.2, 16.8, 3.05, 3.05, 0.04, 0.1, gold),
+    deco(52, 0.12, 11.5, 0.08, 0.6, 4.6, "#0e0e10"),
+    glow(52, 0.22, 11.2, 0.02, 4.2, 4.28, gold),
+    ...[45.5, 52, 58.5, 59.2].map((x, i) => glow(x, i === 3 ? 16.8 : 6.5, 2.0, 0.05, 5.35, 5.42, "#ffe7b0")),
+    deco(43.5, 19, 1.4, 6, 0.02, 0.03, "#7a0f19"),             // the red carpet in through the arch
+    ...plant(62.8, 24.6), ...plant(62.8, 1.2),
+    // A champagne bar by the front wall.
+    solid(60, 24.2, 3.2, 0.5, 1.1, "#141418"), glow(60, 24.2, 3.22, 0.52, 1.1, 1.14, gold),
   ];
   return room({
     id: "dealer", name: "Car Dealership", kind: "showroom", width, depth, wallHeight: 5.6,
@@ -1101,8 +1131,11 @@ function dealer(): VenueLayout {
     specials: cars.map((car) => ({
       kind: "car" as const, model: car.model, name: SHOW_NAMES[car.model] ?? car.model, x: car.x, z: car.z, reach: car.turntable ? 5.2 : 3.9,
     })),
+    entry: { x: 20, z: depth - 1.6 },
     people: [
       { x: 20, z: 2.4, rot: 0, look: STAFF(2, "#1d1d22", "woman"), label: "Sales" },
+      { x: 42.2, z: 14.5, rot: -Math.PI / 2, look: STAFF(0, "#141418"), label: "VIP host" },
+      { x: 60, z: 23.4, rot: 0, look: STAFF(3, "#141418", "woman") },
       { x: 23.4, z: 12.2, rot: -1.9, look: STAFF(4, "#f4f4f1") },
       { x: 9, z: 21.2 + 0.1, rot: 0, look: PARTY[1], move: "sit" },
       { x: 26.3, z: 9.8, rot: 2.6, look: PARTY[4] },
@@ -1110,6 +1143,9 @@ function dealer(): VenueLayout {
     signs: [
       { text: "CAR DEALERSHIP", x: 20, y: 2.9, z: 0.24, size: 0.62, colour: "#f4f4f2" },
       { text: "Tokunbo · Brand new · Papers ready the same day", x: 20, y: 2.1, z: 0.24, size: 0.24, colour: gold },
+      { text: "VIP", x: 52, y: 3.4, z: 0.24, size: 0.9, colour: gold },
+      { text: "By appointment, or by money", x: 52, y: 2.6, z: 0.24, size: 0.26, colour: "#f4f4f2" },
+      { text: "VIP →", x: 39.7, y: 4.85, z: 19, size: 0.34, colour: gold, face: "left" },
       ...cars.map((car) => ({
         text: SHOW_NAMES[car.model] ?? car.model,
         x: car.x, y: 0.55, z: car.z + (car.turntable ? 3.62 : 3.15), size: 0.2, colour: "#1d1d22", back: "#f4f4f2",

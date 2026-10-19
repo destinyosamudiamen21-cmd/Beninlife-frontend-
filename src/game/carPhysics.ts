@@ -27,6 +27,7 @@ const STOPPED = 0.25;                // m/s below which the car counts as standi
 export type CarStats = {
   pull: number;       // m/s² from a standstill
   top: number;        // m/s
+  grip?: number;      // m/s² sideways before the tyres let go: more on a supercar's wide tyres
   wheelbase: number;
   length: number;
   width: number;
@@ -37,8 +38,11 @@ export type CarStats = {
 export function statsFor(zeroTo100: number, topKmh: number, shape: { wheelbase: number; length: number; width: number; radius: number }): CarStats {
   return {
     // A car does 0–100 in its quoted time pulling a little harder at first than at the end.
-    pull: (27.78 / Math.max(zeroTo100, 2.5)) * 1.06,
-    top: Math.min(topKmh, GAME_TOP_KMH) / 3.6,
+    pull: (27.78 / Math.max(zeroTo100, 2.3)) * 1.06,
+    // Everyday cars all top out at the town's 160 km/h. The supercars go past it, a little
+    // for every km/h the maker claims over 250: the hypercar reaches about 228.
+    top: (topKmh <= 250 ? Math.min(topKmh, GAME_TOP_KMH) : GAME_TOP_KMH + (topKmh - 250) * 0.4) / 3.6,
+    grip: GRIP * (1 + Math.max(0, 4.5 - zeroTo100) * 0.12),
     wheelbase: shape.wheelbase,
     length: shape.length,
     width: shape.width,
@@ -121,7 +125,7 @@ export function drive(car: CarState, pedals: Pedals, stats: CarStats, dt: number
   // 2. Steering: the wheels follow the hands a moment behind. At speed they turn only as
   //    far as the tyres can hold the corner: a car at 100 km/h cannot turn like one parking.
   const vv = car.speed * car.speed;
-  const lock = Math.min(STEER_LOCK, vv > 0.01 ? Math.atan((GRIP * stats.wheelbase) / vv) : STEER_LOCK);
+  const lock = Math.min(STEER_LOCK, vv > 0.01 ? Math.atan(((stats.grip ?? GRIP) * stats.wheelbase) / vv) : STEER_LOCK);
   const want = Math.max(-1, Math.min(1, pedals.steer)) * lock;
   const step = STEER_RATE * dt;
   car.steer += Math.max(-step, Math.min(step, want - car.steer));

@@ -1,27 +1,16 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { bearing, spread, turned, twistFilter, type Point } from "./gestures";
-import {
-  cameraInput,
-  creatorInput,
-  releaseTouch,
-  setZoom,
-  touchInput,
-  turnCamera,
-} from "./input";
+import { cameraInput, creatorInput, releaseTouch, setZoom, touchInput, turnCamera } from "./input";
 
-const STICK_RADIUS = 60; // pixels of drag for full speed
-const SPRINT_AT = 0.9; // fraction of the radius where walking becomes sprinting
-const SPIN_PER_PIXEL = 0.012; // radians of character turn per pixel, in the creator
-const WHEEL_ZOOM = 0.0015; // mouse wheel / two-finger scroll
-const PINCH_WHEEL_ZOOM = 0.01; // trackpad pinch arrives as a ctrl+wheel event
-const TWIST_START = 0.12; // radians two fingers must turn before the camera follows: a pinch always wobbles a little
-const LOOK_PER_PIXEL = 0.006; // radians the camera swings per pixel of a right-button drag
+const STICK_RADIUS = 60;        // pixels of drag for full speed
+const SPRINT_AT = 0.9;          // fraction of the radius where walking becomes sprinting
+const SPIN_PER_PIXEL = 0.012;   // radians of character turn per pixel, in the creator
+const WHEEL_ZOOM = 0.0015;      // mouse wheel / two-finger scroll
+const PINCH_WHEEL_ZOOM = 0.01;  // trackpad pinch arrives as a ctrl+wheel event
+const TWIST_START = 0.12;       // radians two fingers must turn before the camera follows: a pinch always wobbles a little
+const LOOK_PER_PIXEL = 0.006;   // radians the camera swings per pixel of a right-button drag
+const THUMB_LOOK_PER_PIXEL = 0.009; // ... and per pixel of a finger dragged on the right of the screen
+const LOOK_SIDE = 0.5;          // a finger that lands right of this share of the screen looks round instead of walking
 
 type Stick = { origin: Point; knob: Point };
 type Props = {
@@ -46,11 +35,10 @@ export function TouchControls({ mode, turn = true }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const pointers = useRef(new Map<number, Point>());
   const moveId = useRef<number | null>(null);
-  const lookId = useRef<number | null>(null); // the mouse, while its right button drags the camera
+  const lookId = useRef<number | null>(null);   // the mouse, while its right button drags the camera
+  const thumbs = useRef(new Map<number, number>()); // fingers looking round: where each one was across the screen
   const origin = useRef<Point>({ x: 0, y: 0 });
-  const pinch = useRef<{ gap: number; zoom: number; bearing: number } | null>(
-    null
-  );
+  const pinch = useRef<{ gap: number; zoom: number; bearing: number } | null>(null);
   const twist = useMemo(() => twistFilter(TWIST_START), []);
   const [stick, setStick] = useState<Stick | null>(null);
 
@@ -106,6 +94,13 @@ export function TouchControls({ mode, turn = true }: Props) {
       }
       return;
     }
+    // Like most phone games: the left thumb walks, the right thumb drags to look round. Both at once.
+    const width = event.currentTarget.getBoundingClientRect().width;
+    if (mode === "play" && turn && point.x > width * LOOK_SIDE) {
+      thumbs.current.set(event.pointerId, point.x);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
     pointers.current.set(event.pointerId, point);
     event.currentTarget.setPointerCapture(event.pointerId);
 
@@ -120,17 +115,19 @@ export function TouchControls({ mode, turn = true }: Props) {
     stopMoving();
     if (mode === "play" && pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
-      pinch.current = {
-        gap: spread(a, b),
-        zoom: cameraInput.zoom,
-        bearing: bearing(a, b),
-      };
+      pinch.current = { gap: spread(a, b), zoom: cameraInput.zoom, bearing: bearing(a, b) };
       twist.reset();
     }
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const point = localPoint(event);
+    const thumb = thumbs.current.get(event.pointerId);
+    if (thumb !== undefined) {
+      turnCamera(-(point.x - thumb) * THUMB_LOOK_PER_PIXEL);
+      thumbs.current.set(event.pointerId, point.x);
+      return;
+    }
     if (event.pointerId === lookId.current) {
       // Dragging right pulls the near side of the world to the right, as if it were held.
       turnCamera(-(point.x - origin.current.x) * LOOK_PER_PIXEL);
@@ -176,6 +173,7 @@ export function TouchControls({ mode, turn = true }: Props) {
   };
 
   const onPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (thumbs.current.delete(event.pointerId)) return;
     if (event.pointerId === lookId.current) {
       lookId.current = null;
       return;
@@ -186,21 +184,16 @@ export function TouchControls({ mode, turn = true }: Props) {
     } else if (pinch.current) {
       // A third finger lifted: measure again from the two that are left, so nothing jumps.
       const [a, b] = [...pointers.current.values()];
-      pinch.current = {
-        gap: spread(a, b),
-        zoom: cameraInput.zoom,
-        bearing: bearing(a, b),
-      };
+      pinch.current = { gap: spread(a, b), zoom: cameraInput.zoom, bearing: bearing(a, b) };
       twist.reset();
     }
-    if (event.pointerId === moveId.current || pointers.current.size === 0)
-      stopMoving();
+    if (event.pointerId === moveId.current || pointers.current.size === 0) stopMoving();
   };
 
   return (
     <div
       ref={layerRef}
-      className='touch-layer'
+      className="touch-layer"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerEnd}
@@ -209,14 +202,8 @@ export function TouchControls({ mode, turn = true }: Props) {
     >
       {stick && (
         <>
-          <div
-            className='stick-ring'
-            style={{ left: stick.origin.x, top: stick.origin.y }}
-          />
-          <div
-            className='stick-knob'
-            style={{ left: stick.knob.x, top: stick.knob.y }}
-          />
+          <div className="stick-ring" style={{ left: stick.origin.x, top: stick.origin.y }} />
+          <div className="stick-knob" style={{ left: stick.knob.x, top: stick.knob.y }} />
         </>
       )}
     </div>

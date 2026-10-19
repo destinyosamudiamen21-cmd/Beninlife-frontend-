@@ -9,7 +9,8 @@ import {
   type LookOptions,
 } from "../api/appearance";
 import { enterClub, fetchClub, inviteToBooth, rentBooth, type Club } from "../api/club";
-import { bringCar, carLook, everyoneOut, fetchCars, getIn, getOut, joinRide, leaveRide, sendCarHome, setDoors, type Cars, type OwnedCar } from "../api/cars";
+import { exitAt, loadLinks, type RoadLink } from "./roadLinks";
+import { bringCar, carLook, driveAcross, everyoneOut, fetchCars, getIn, getOut, joinRide, leaveRide, sendCarHome, setDoors, type Cars, type OwnedCar } from "../api/cars";
 import { acceptCrew, declineCrew, fetchCrew, leaveCrew, type Crew } from "../api/crew";
 import { fetchHome, type Home, type HomeChange } from "../api/home";
 import type { Player } from "../api/players";
@@ -64,7 +65,7 @@ import { loadDistrict, type DistrictData, type Door } from "./districtData";
 import { cameraView, playerFocus } from "./focus";
 import { buildWalkways, walkwayHeight, withFootbridges } from "./footbridge";
 import { doorSpot, homeCollider, type FloorChange } from "./homeLayout";
-import { CAMERA_FOV, creatorInput, faceNorth } from "./input";
+import { CAMERA_FOV, cameraInput, creatorInput, faceNorth, switchView, type View } from "./input";
 import { holdAt, type Near } from "./nearby";
 import { createCrowd, holder, sendAway, shakeOff, type Seller } from "./npcs";
 import { HauntSound } from "./hauntSound";
@@ -81,6 +82,8 @@ import { DeliveryHud, TaxiHud } from "./DeliveryHud";
 import { FIELD_FILE, StreetMusic, rememberStreetMusic, streetMusicWanted } from "./streetMusic";
 import { fetchRaces, finishRace, giveUpRace, type Race } from "../api/race";
 import { RaceField } from "./RaceField";
+import { PotholeLayer } from "./PotholeLayer";
+import { potholesFor } from "./potholes";
 import { RaceDesk, RaceHud, RaceResultSheet } from "./RacePanels";
 import { gridSlot, TRACK } from "./raceTrack";
 import { PYLONS } from "./raceShapes";
@@ -230,12 +233,19 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const rideAlong = useRef<(trip: Going, by: string) => void>(() => {});
   // Riding in someone else's car: whose, and what to do when the server says they are out.
   const [ridingWith, setRidingWith] = useState<{ id: string; name: string } | null>(null);
+  // From behind, or through the player's eyes (in a car: from the driver's seat).
+  const [view, setView] = useState<View>(cameraInput.view);
   const outOfRide = useRef<(x: number, z: number) => void>(() => {});
+  // Riding along while the driver crosses into another district: the ride goes on there.
+  const droveAcross = useRef<(district: string, x: number, z: number) => void>(() => {});
+  const keepRide = useRef(false);
 
   const onEvent = useCallback(
     (event: WorldEvent) => {
       if (event.type === "say") {
         hear(event.id, event.name, event.text, false);
+      } else if (event.type === "drove") {
+        droveAcross.current(event.district, event.x, event.z);
       } else if (event.type === "ride") {
         if (event.passenger) flash(event.kind === "in" ? `@${event.passenger} got in your car.` : `@${event.passenger} got out.`);
         else if (event.driver === "" && event.x !== undefined && event.z !== undefined) outOfRide.current(event.x, event.z);
@@ -360,6 +370,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const [atDoor, setAtDoor] = useState(false);
   const [jobBusy, setJobBusy] = useState(false);
   const [fare, setFare] = useState<Fare | null>(null);
+  // Working as a taxi is the driver's choice: off until they switch it on in the car.
+  const [taxiMode, setTaxiMode] = useState(false);
   const [atStop, setAtStop] = useState(false);
   const tripCount = useRef(0);
   const stopping = useRef(false);
@@ -955,8 +967,77 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   // Going indoors or to another part of town ends a ride (the server has already let them out).
   const districtId = district?.id;
   useEffect(() => {
+    if (keepRide.current) {
+      keepRide.current = false;   // they crossed into this district in the car: still riding
+      return;
+    }
     setRidingWith(null);
   }, [scene.kind, districtId]);
+
+  // ---- the roads between districts ----------------------------------------------------
+  const [crossing, setCrossing] = useState<string | null>(null);
+  const crossingRef = useRef(false);
+  const crossRoad = useCallback(async (link: RoadLink) => {
+    if (crossingRef.current || !driving) return;
+    crossingRef.current = true;
+    setCrossing(link.to_name);
+    try {
+      const loading = loadDistrict(link.to_district);
+      await driveAcross(player.id, link.id);
+      const loaded = await loading.catch(() => loadDistrict(link.to_district));
+      const ground = buildCollider(loaded);
+      setHeld(0);
+      setNearSeller(null);
+      setNearDoor(null);
+      setDistrict(loaded);
+      streetSpot.current = { x: link.arrive_x, z: link.arrive_z };
+      playerFocus.x = link.arrive_x;
+      playerFocus.z = link.arrive_z;
+      setDriving({
+        ...driving,
+        key: ++tripCount.current,
+        x: link.arrive_x,
+        z: link.arrive_z,
+        heading: link.arrive_rot,
+        ground,
+        holdUntil: undefined,
+      });
+      flash(`Welcome to ${link.to_name}.`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "The road is blocked. Try again.");
+    } finally {
+      crossingRef.current = false;
+      setCrossing(null);
+    }
+  }, [driving, player.id, flash]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Driving: off the end of a main road, on into the next district.
+  useEffect(() => {
+    if (!driving || scene.kind !== "street" || !districtId || race) return;
+    let live = true;
+    let timer = 0;
+    void loadLinks().then(({ reach, links }) => {
+      if (!live) return;
+      timer = window.setInterval(() => {
+        const link = exitAt(links, reach, districtId, playerFocus.x, playerFocus.z);
+        if (link) void crossRoad(link);
+      }, 250);
+    });
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [driving, scene.kind, districtId, race, crossRoad]);
+
+  droveAcross.current = (to: string, x: number, z: number) => {
+    if (!ridingWith) return;
+    keepRide.current = true;
+    void loadDistrict(to).then((loaded) => {
+      setDistrict(loaded);
+      streetSpot.current = { x, z };
+      appearAt(x, z);
+    }).catch(() => {});
+  };
   outOfRide.current = (x: number, z: number) => {
     if (!ridingWith) return;
     setRidingWith(null);
@@ -1646,6 +1727,11 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         .ride-bar { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); top: calc(164px + env(safe-area-inset-top)); display: flex; gap: 8px; align-items: center;
           background: rgba(20, 20, 24, 0.82); color: #fff; border-radius: 12px; padding: 6px 6px 6px 12px; font: 600 14px/1.3 system-ui, sans-serif; max-width: calc(100vw - 32px); }
         .ride-bar button { border: 0; border-radius: 8px; background: #f6efe0; color: #2a2018; font-weight: 800; padding: 7px 11px; cursor: pointer; white-space: nowrap; }
+        .crossing { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgba(10, 8, 6, 0.55);
+          color: #fff; font: 800 22px/1.2 system-ui, sans-serif; text-shadow: 0 2px 10px rgba(0,0,0,0.6); pointer-events: none; }
+        .view-switch { width: 44px; height: 44px; border-radius: 50%; border: 2px solid #e2b657; background: #1c1512; color: #f6efe0;
+          font: 800 12px/1 system-ui, sans-serif; cursor: pointer; padding: 0; pointer-events: auto; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); }
+        .view-switch:active { transform: scale(0.94); }
         .hud-sound { border: 0; background: rgba(255,255,255,0.14); color: inherit; border-radius: 6px; width: 24px; height: 22px; margin-right: 6px; font-size: 13px; cursor: pointer; padding: 0; vertical-align: middle; }
         .hud-sound[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
         .hud-beta { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; background: #f5c400; color: #1a0b24; border-radius: 4px; padding: 1px 4px; vertical-align: middle; }
@@ -1682,6 +1768,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         {!mapOpen && scene.kind === "street" && district && <District data={district} />}
         {!mapOpen && scene.kind === "street" && district && <StreetExtras data={district} onNearDoor={setNearDoor} />}
         {!mapOpen && scene.kind === "street" && district?.id === "gra" && <RaceField race={race} offset={raceOffset} />}
+        {!mapOpen && scene.kind === "street" && district && <PotholeLayer district={district} />}
         {!mapOpen && scene.kind === "street" && <ParkedCars cars={parked} />}
         {!mapOpen && scene.kind === "street" && district && life && <CrowdAndTraffic key={district.id} life={life} crowd={crowd} />}
         {guiding && heading && <Guide key={`${heading.district}:${heading.name}`} x={heading.x} z={heading.z} onDistance={walked} />}
@@ -1727,10 +1814,12 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               said={said[player.id] ?? ""}
               out={homeLife.wakeAt !== null}
               spraying={homeLife.life?.doing?.pose === "spray"}
-              orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)}
+              orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open) || (scene.kind === "venue" && view === "first")}
               frozen={decorating}
-              driving={scene.kind === "street" ? driving : null}
+              driving={scene.kind === "street" && driving ? { ...driving, holes: district ? potholesFor(district) : undefined } : null}
               riding={scene.kind === "street" && ridingWith ? followDriver : null}
+              ridingLook={ridingWith ? remotes.find((entry) => entry.id === ridingWith.id)?.car ?? "" : ""}
+              view={scene.kind === "street" || scene.kind === "home" || scene.kind === "venue" ? view : "third"}
             />
           )}
           {shared &&
@@ -1762,14 +1851,22 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
 
       {/* The map takes fingers and the mouse itself, so the walking controls step aside for it. */}
       {!mapOpen && !decorating && !driving && (
-        <TouchControls key={customising ? "spin" : "play"} mode={customising ? "spin" : "play"} turn={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open)} />
+        <TouchControls key={customising ? "spin" : "play"} mode={customising ? "spin" : "play"} turn={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open) || (scene.kind === "venue" && view === "first")} />
       )}
-      {driving && scene.kind === "street" && !overlay && !panelOpen && <DriveHud onGetOut={() => void getOutOfCar()} busy={carBusy} />}
+      {driving && scene.kind === "street" && !overlay && !panelOpen && <DriveHud
+          onGetOut={() => void getOutOfCar()}
+          busy={carBusy}
+          taxi={taxiMode}
+          onTaxi={(drivingCar.current ?? 0) > 0 && !race ? () => {
+            setTaxiMode(!taxiMode);
+            flash(taxiMode ? "Taxi off: no passengers will be offered." : "Taxi on: look for the button to find a passenger.");
+          } : undefined}
+        />}
 
       {fare && !photo && !panelOpen && scene.kind === "street" && !delivery && (
         <TaxiHud fare={fare} atStop={atStop} busy={jobBusy} onAct={() => void fareStep()} onDrop={() => void cancelFare()} />
       )}
-      {driving && (drivingCar.current ?? 0) > 0 && !fare && !race && !delivery && !nearDesk && scene.kind === "street" && !panelOpen && (
+      {taxiMode && driving && (drivingCar.current ?? 0) > 0 && !fare && !race && !delivery && !nearDesk && scene.kind === "street" && !panelOpen && (
         <div className="crowd-actions" style={{ bottom: "calc(200px + env(safe-area-inset-bottom))" }}>
           <button type="button" className="give-in" onClick={() => void startFare()} disabled={jobBusy}>
             Taxi: find a passenger
@@ -1788,6 +1885,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         />
       )}
 
+      {crossing && <div className="crossing" role="status">Driving to {crossing}…</div>}
       {newVersion && !photo && (
         <div className="update-bar" role="status">
           <span>A new version of Beninlife is out.</span>
@@ -1865,6 +1963,16 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
                 </button>
               )}
               {/* Out on the street the camera can be swung right round. This shows which way is north, and puts it back. */}
+              {(scene.kind === "street" || scene.kind === "home" || scene.kind === "venue") && (
+                <button
+                  type="button"
+                  className="view-switch"
+                  aria-label={view === "first" ? "View from behind the player" : "View through the player's eyes"}
+                  onClick={() => setView(switchView())}
+                >
+                  {view === "first" ? "3rd" : "1st"}
+                </button>
+              )}
               {!indoors && <Compass read={() => cameraView.yaw} onReset={faceNorth} />}
             </div>
           )}

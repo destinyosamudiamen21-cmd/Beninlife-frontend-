@@ -40,6 +40,8 @@ export type WorldEvent =
    * To a driver: `passenger` got "in" or "out".
    */
   | { type: "ride"; driver?: string; x?: number; z?: number; passenger?: string; kind?: string }
+  /** A passenger: the car they are in drove into another district. */
+  | { type: "drove"; district: string; x: number; z: number }
   /** Something happened to this player: `kind` says what ("vip": `name` brought them into a booth; "saved": `name` saved their number). */
   | { type: "event"; kind: string; name: string }
   /**
