@@ -15,10 +15,11 @@ import { acceptCrew, declineCrew, fetchCrew, leaveCrew, type Crew } from "../api
 import { fetchHome, type Home, type HomeChange } from "../api/home";
 import type { Player } from "../api/players";
 import { fetchWallet } from "../api/phone";
-import { getStopped, type PoliceStop } from "../api/police";
+import { fetchPatrols, fetchStop, getStopped, type PatrolRoute, type PoliceStop } from "../api/police";
 import { fetchStory, tellStory, type StoryResult, type StoryState } from "../api/story";
 import { fetchCity, goTo, type City, type CityPlace, type Going, type RideOption } from "../api/travel";
 import { ArenaScene } from "./ArenaScene";
+import { BusRide3D } from "./BusRide3D";
 import { BusRide, type RideKind } from "./BusRide";
 import { CharacterCreator } from "./CharacterCreator";
 import { CityMap } from "./CityMap";
@@ -44,6 +45,8 @@ import { LocalPlayer, type Driving } from "./LocalPlayer";
 import { MapPanel } from "./MapPanel";
 import { MarketPeople } from "./MarketPeople";
 import { PoliceCheckpoints } from "./PoliceCheckpoint";
+import { PolicePatrols } from "./PolicePatrols";
+import { ChaseHud } from "./ChaseHud";
 import { PolicePanel } from "./PolicePanel";
 import { Phone } from "./Phone";
 import { RemotePlayer } from "./RemotePlayer";
@@ -67,7 +70,7 @@ import { buildWalkways, walkwayHeight, withFootbridges } from "./footbridge";
 import { doorSpot, homeCollider, type FloorChange } from "./homeLayout";
 import { CAMERA_FOV, cameraInput, creatorInput, faceNorth, switchView, type View } from "./input";
 import { holdAt, type Near } from "./nearby";
-import { createCrowd, holder, sendAway, shakeOff, type Seller } from "./npcs";
+import { createCrowd, holder, sendAway, setHour, shakeOff, type Seller } from "./npcs";
 import { HauntSound } from "./hauntSound";
 import { createStreetLife, trafficCollider } from "./streetLife";
 import type { RosterEntry, WorldEvent } from "./types";
@@ -239,6 +242,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   // Riding along while the driver crosses into another district: the ride goes on there.
   const droveAcross = useRef<(district: string, x: number, z: number) => void>(() => {});
   const keepRide = useRef(false);
+  // The police: a patrol stopped this player, a chase, the car taken. Set further down.
+  const policeNews = useRef<(event: WorldEvent) => void>(() => {});
 
   const onEvent = useCallback(
     (event: WorldEvent) => {
@@ -246,6 +251,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         hear(event.id, event.name, event.text, false);
       } else if (event.type === "drove") {
         droveAcross.current(event.district, event.x, event.z);
+      } else if (event.type === "police" || event.type === "chase" || event.type === "car_taken") {
+        policeNews.current(event);
       } else if (event.type === "ride") {
         if (event.passenger) flash(event.kind === "in" ? `@${event.passenger} got in your car.` : `@${event.passenger} got out.`);
         else if (event.driver === "" && event.x !== undefined && event.z !== undefined) outOfRide.current(event.x, event.z);
@@ -350,6 +357,10 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const [storyOpen2, setStoryOpen2] = useState<Special | null>(null);
   const [scare, setScare] = useState<{ scare: Scare; key: number } | null>(null);
   const [policeStop, setPoliceStop] = useState<PoliceStop | null>(null);
+  // The patrols' routes and the server's clock, to draw them where the server has them.
+  const [patrols, setPatrols] = useState<{ routes: PatrolRoute[]; offset: number }>({ routes: [], offset: 0 });
+  // A police chase: when it runs out (this browser's clock), or null.
+  const [chaseUntil, setChaseUntil] = useState<number | null>(null);
   // Cars: what the player owns, the keys, the dealership's sheet, and the trip at the wheel.
   const [cars, setCars] = useState<Cars | null>(null);
   // ---- racing at the GRA race field --------------------------------------------------
@@ -598,6 +609,11 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       if (finished.lines.some((line) => line.startsWith("You moved into"))) fetchStory(player.id).then(setStory).catch(() => {});
     },
   });
+  // The market keeps the player's time of day: sellers come in the morning and go home at dusk.
+  const hourNow = homeLife.life ? homeLife.life.clock.hour + homeLife.life.clock.minute / 60 : null;
+  useEffect(() => {
+    if (crowd && hourNow !== null) setHour(crowd, hourNow);
+  }, [crowd, hourNow]);
   const loadLife = homeLife.load;
   useEffect(() => {
     void loadLife();
@@ -1342,6 +1358,48 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     [player.id],
   );
 
+  // The patrols: where they drive, fetched once with the server's clock to place them by.
+  useEffect(() => {
+    let live = true;
+    const asked = Date.now();
+    fetchPatrols(player.id)
+      .then((loaded) => {
+        if (!live) return;
+        const offset = loaded.now_ms - (asked + Date.now()) / 2;
+        setPatrols({ routes: loaded.routes, offset });
+        if (loaded.wanted > 0) setChaseUntil(Date.now() + loaded.wanted * 1000);
+      })
+      .catch(() => {}); // no patrols drawn; the server still stops people
+    return () => {
+      live = false;
+    };
+  }, [player.id]);
+
+  // What the server says about the police as the player moves: stopped, chased, the car taken.
+  policeNews.current = (event: WorldEvent) => {
+    if (event.type === "police") {
+      fetchStop(player.id)
+        .then((stop) => {
+          if (stop) setPoliceStop(stop);
+        })
+        .catch(() => {});
+    } else if (event.type === "chase") {
+      if (event.state === "on") {
+        setPoliceStop(null);
+        setChaseUntil(Date.now() + (event.seconds ?? 40) * 1000);
+        shout("POLICE CHASE! Keep moving and lose them.");
+      } else {
+        setChaseUntil(null);
+        if (event.state === "lost") shout("You lost them. They will remember the car for a while.");
+        else flash("They caught you.");
+      }
+    } else if (event.type === "car_taken") {
+      setDriving(null);
+      drivingCar.current = null;
+      fetchCars(player.id).then(setCars).catch(() => {});
+    }
+  };
+
   const takeStairs = (change: FloorChange) => {
     setScene({ kind: "home", floor: change.floor });
     appearAt(change.x, change.z);
@@ -1761,6 +1819,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       <Canvas
         shadows="percentage"
         dpr={[1, 1.5]}
+        // On the bus the ride has a 3D scene of its own: the city waits, so a phone draws only one.
+        frameloop={ride?.mode === "bus" ? "never" : "always"}
         camera={{ position: [player.pos_x, 6, player.pos_z + 9], fov: CAMERA_FOV, near: 0.3, far: 1600 }}
       >
         {/* While the city map is open it is all that is drawn: the street comes back when it closes. */}
@@ -1774,6 +1834,9 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         {guiding && heading && <Guide key={`${heading.district}:${heading.name}`} x={heading.x} z={heading.z} onDistance={walked} />}
         {!mapOpen && scene.kind === "street" && district && (
           <PoliceCheckpoints district={district.id} onReach={calledOver} paused={panelOpen || busy || tiedUp || held > 0 || driving !== null} />
+        )}
+        {!mapOpen && scene.kind === "street" && district && (
+          <PolicePatrols district={district.id} routes={patrols.routes} clockOffset={patrols.offset} chasing={chaseUntil !== null} />
         )}
         {scene.kind === "home" && home && (
           <HomeScene
@@ -1816,7 +1879,16 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               spraying={homeLife.life?.doing?.pose === "spray"}
               orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open) || (scene.kind === "venue" && view === "first")}
               frozen={decorating}
-              driving={scene.kind === "street" && driving ? { ...driving, holes: district ? potholesFor(district) : undefined } : null}
+              driving={
+                scene.kind === "street" && driving
+                  ? {
+                      ...driving,
+                      holes: district ? potholesFor(district) : undefined,
+                      // Pulled over: the car stays put while they talk (driving off anyway is a chase).
+                      holdUntil: policeStop && policeStop.kind !== "foot" ? Number.MAX_SAFE_INTEGER : driving.holdUntil,
+                    }
+                  : null
+              }
               riding={scene.kind === "street" && ridingWith ? followDriver : null}
               ridingLook={ridingWith ? remotes.find((entry) => entry.id === ridingWith.id)?.car ?? "" : ""}
               view={scene.kind === "street" || scene.kind === "home" || scene.kind === "venue" ? view : "third"}
@@ -1932,6 +2004,11 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               {scene.kind === "home" && !tiedUp && !decorating && (
                 <button type="button" className="hud-button hud-build" onClick={() => setDecorating(true)}>
                   Build
+                </button>
+              )}
+              {scene.kind === "home" && !tiedUp && !decorating && (
+                <button type="button" className="hud-button" onClick={() => setWardrobeOpen(true)}>
+                  Clothes
                 </button>
               )}
               {!indoors && !tiedUp && !driving && story?.done && (
@@ -2249,6 +2326,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       {wardrobeOpen && (
         <WardrobePanel
           playerId={player.id}
+          body={look?.body}
           onMoney={setMoney}
           onWear={() => fetchLookState(player.id).then((state) => setLook(state.look)).catch(() => {})}
           onClose={() => setWardrobeOpen(false)}
@@ -2293,10 +2371,13 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
             setPoliceStop(null);
             void loadLife(); // a night in the station takes hours off their day
           }}
+          onFled={() => setPoliceStop(null)}
         />
       )}
       <ScareOverlay scare={scare} />
-      {ride && <BusRide from={ride.from} to={ride.to} fare={ride.fare} mode={ride.mode} seconds={ride.seconds} onDone={() => void arrive()} />}
+      {chaseUntil !== null && <ChaseHud until={chaseUntil} />}
+      {ride && ride.mode === "bus" && <BusRide3D from={ride.from} to={ride.to} fare={ride.fare} seconds={ride.seconds} onDone={() => void arrive()} />}
+      {ride && ride.mode !== "bus" && <BusRide from={ride.from} to={ride.to} fare={ride.fare} mode={ride.mode} seconds={ride.seconds} onDone={() => void arrive()} />}
 
       {/* Walking to a place picked on the map: how far is left, and a way to stop being shown. */}
       {heading && !overlay && !panelOpen && scene.kind === "street" && (

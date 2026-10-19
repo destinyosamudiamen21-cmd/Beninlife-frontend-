@@ -5,6 +5,8 @@ const naira = (amount: number) => `₦${amount.toLocaleString()}`;
 
 type Props = {
   playerId: string;
+  /** The player's body, "man" or "woman": their own clothes are shown first. */
+  body?: string;
   onMoney: (money: number) => void;
   /** The player changed clothes: the game should show the new look. */
   onWear: () => void;
@@ -22,8 +24,17 @@ function Swatch({ outfit }: { outfit: Outfit }) {
   );
 }
 
+/** Their own clothes, native wear first; or everything. What they own or wear stays in either way. */
+function sorted(outfits: Outfit[], body: string | undefined, all: boolean): Outfit[] {
+  const mine = body === "woman" ? "woman" : "man";
+  const shown = all ? outfits : outfits.filter((o) => o.who === "any" || o.who === mine || o.owned > 0);
+  const rank = (o: Outfit) => (o.who === mine ? 0 : o.who === "any" ? 2 : 3) - (o.dress ? 1 : 0);
+  return [...shown].sort((a, b) => rank(a) - rank(b) || a.price - b.price);
+}
+
 /** The boutique in the mall: buy an outfit, change into it, sell it back for half. */
-export function WardrobePanel({ playerId, onMoney, onWear, onClose }: Props) {
+export function WardrobePanel({ playerId, body, onMoney, onWear, onClose }: Props) {
+  const [showAll, setShowAll] = useState(false);
   const [wardrobe, setWardrobe] = useState<Wardrobe | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -74,6 +85,10 @@ export function WardrobePanel({ playerId, onMoney, onWear, onClose }: Props) {
         .ward-item button { border: none; border-radius: 9px; padding: 8px 11px; font-weight: 700; font-size: 13px; background: #2f6f5e; color: #fff; }
         .ward-item button.plain { background: rgba(255,255,255,0.12); color: inherit; }
         .ward-note { font-size: 13px; margin: 6px 0; }
+        .ward-native { font-style: normal; font-size: 11px; font-weight: 800; color: #1c1512; background: #e2b657; border-radius: 5px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+        .ward-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: rgba(255,255,255,0.08); border-radius: 11px; padding: 3px; margin: 6px 0 8px; }
+        .ward-tabs button { border: 0; background: none; color: inherit; font-weight: 700; padding: 8px; border-radius: 9px; opacity: 0.75; }
+        .ward-tabs button[aria-pressed="true"] { background: #f6efe0; color: #1c1512; opacity: 1; }
       `}</style>
       <div className="sheet-card">
         <div className="sheet-top">
@@ -88,12 +103,23 @@ export function WardrobePanel({ playerId, onMoney, onWear, onClose }: Props) {
         {error && <p className="life-error-inline ward-note" style={{ color: "#ff9a8a" }}>{error}</p>}
         {said && !error && <p className="ward-note">{said}</p>}
         {wardrobe && !wardrobe.in_shop && <p className="ward-note">You can change into clothes you own here. Buying and selling is in the boutique at the mall.</p>}
+        <div className="ward-tabs" role="group" aria-label="Which clothes">
+          <button type="button" aria-pressed={!showAll} onClick={() => setShowAll(false)}>
+            {body === "woman" ? "Women's" : "Men's"}
+          </button>
+          <button type="button" aria-pressed={showAll} onClick={() => setShowAll(true)}>
+            Everything
+          </button>
+        </div>
         <div className="ward-list">
-          {wardrobe?.outfits.map((outfit) => (
+          {wardrobe && sorted(wardrobe.outfits, body, showAll).map((outfit) => (
             <div key={outfit.id} className={`ward-item${wardrobe.wearing === outfit.id ? " on" : ""}`}>
               <Swatch outfit={outfit} />
               <div className="ward-lines">
-                <strong>{outfit.name}</strong>
+                <strong>
+                  {outfit.name}
+                  {outfit.dress && <em className="ward-native">Native</em>}
+                </strong>
                 <span>
                   {naira(outfit.price)}
                   {outfit.owned > 0 ? ` · You have ${outfit.owned}` : ""}

@@ -8,6 +8,8 @@ export type Look = {
   top_color: string;
   bottom_color: string;
   shoe_color: string;
+  /** Native wear over the clothes (dressShapes.ts): "agbada", "iro_gele"... or "" for none. */
+  dress?: string;
 };
 
 export type LookOptions = {

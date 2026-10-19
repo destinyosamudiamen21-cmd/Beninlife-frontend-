@@ -1,19 +1,6 @@
-import {
-  Component,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type ReactNode,
-} from "react";
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { useFrame } from "@react-three/fiber";
-import {
-  BufferAttribute,
-  BufferGeometry,
-  Color,
-  DynamicDrawUsage,
-  type InstancedMesh,
-} from "three";
+import { BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, type InstancedMesh } from "three";
 import type { MeshData } from "./districtGeometry";
 import { cameraView, playerFocus, playerStreet } from "./focus";
 import { cameraInput } from "./input";
@@ -63,22 +50,13 @@ type ManyProps = {
 };
 
 /** One shape drawn `count` times in a single call, each copy with its own colour. */
-function Many({
-  meshRef,
-  geometry,
-  count,
-  colours,
-  shadow = false,
-}: ManyProps) {
+function Many({ meshRef, geometry, count, colours, shadow = false }: ManyProps) {
   useLayoutEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
     const tint = new Color();
     for (let i = 0; i < count; i++) {
-      mesh.setColorAt(
-        i,
-        tint.setRGB(colours[i * 3], colours[i * 3 + 1], colours[i * 3 + 2])
-      );
+      mesh.setColorAt(i, tint.setRGB(colours[i * 3], colours[i * 3 + 1], colours[i * 3 + 2]));
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.instanceMatrix.setUsage(DynamicDrawUsage); // these move every frame
@@ -88,14 +66,7 @@ function Many({
   // The copies are spread all over the district, so the engine must not try to skip the
   // whole lot because one of them is off screen.
   return (
-    <instancedMesh
-      key={count}
-      ref={meshRef}
-      args={[geometry, undefined, count]}
-      frustumCulled={false}
-      castShadow={shadow}
-      receiveShadow
-    >
+    <instancedMesh key={count} ref={meshRef} args={[geometry, undefined, count]} frustumCulled={false} castShadow={shadow} receiveShadow>
       <meshLambertMaterial vertexColors />
     </instancedMesh>
   );
@@ -123,41 +94,22 @@ function Street({ life, crowd }: Props) {
       leg: toGeometry(person.leg),
       arm: toGeometry(person.arm),
       load: toGeometry(person.load),
-      vehicles: VEHICLE_KINDS.map((kind) =>
-        toGeometry(buildVehicleShape(kind))
-      ),
+      vehicles: VEHICLE_KINDS.map((kind) => toGeometry(buildVehicleShape(kind))),
     };
   }, []);
   useEffect(
     () => () => {
-      for (const geometry of [
-        shapes.body,
-        shapes.head,
-        shapes.leg,
-        shapes.arm,
-        shapes.load,
-        ...shapes.vehicles,
-      ])
-        geometry.dispose();
+      for (const geometry of [shapes.body, shapes.head, shapes.leg, shapes.arm, shapes.load, ...shapes.vehicles]) geometry.dispose();
     },
-    [shapes]
+    [shapes],
   );
 
-  const standing = useMemo(
-    () => (crowd ? [...crowd.sellers, ...crowd.touts] : []),
-    [crowd]
-  );
+  const standing = useMemo(() => (crowd ? [...crowd.sellers, ...crowd.touts] : []), [crowd]);
   const sellers = crowd ? crowd.sellers.length : 0;
   const walkers = life.walkers.length;
   const people = walkers + standing.length;
-  const colours = useMemo(
-    () => peopleColours(life, standing),
-    [life, standing]
-  );
-  const paints = useMemo(
-    () => VEHICLE_KINDS.map((kind) => vehicleColours(life, kind)),
-    [life]
-  );
+  const colours = useMemo(() => peopleColours(life, standing), [life, standing]);
+  const paints = useMemo(() => VEHICLE_KINDS.map((kind) => vehicleColours(life, kind)), [life]);
 
   const body = useRef<InstancedMesh>(null);
   const head = useRef<InstancedMesh>(null);
@@ -173,32 +125,15 @@ function Street({ life, crowd }: Props) {
   // Sellers do not move, so they are only placed again when the set of people drawn as
   // full characters changes. -1 means "place them now".
   const placedFor = useRef(-1);
-  const clear = useRef<ClearView>({
-    x: 0,
-    z: 0,
-    ux: 0,
-    uz: 1,
-    near: 0.9,
-    far: 0,
-  });
+  const clear = useRef<ClearView>({ x: 0, z: 0, ux: 0, uz: 1, near: 0.9, far: 0 });
   useLayoutEffect(() => {
     placedFor.current = -1;
   }, [standing, people]);
 
   const show = () => {
-    const b = body.current,
-      h = head.current,
-      l = legs.current,
-      a = arms.current,
-      o = loads.current;
+    const b = body.current, h = head.current, l = legs.current, a = arms.current, o = loads.current;
     if (b && h && l && a && o) {
-      const slots: PeopleSlots = {
-        body: slotsOf(b),
-        head: slotsOf(h),
-        legs: slotsOf(l),
-        arms: slotsOf(a),
-        loads: slotsOf(o),
-      };
+      const slots: PeopleSlots = { body: slotsOf(b), head: slotsOf(h), legs: slotsOf(l), arms: slotsOf(a), loads: slotsOf(o) };
       // The camera looks at the player from whichever side it has been swung to. Walkers
       // in the gap between the two are not drawn. (Not when the player is up on a bridge:
       // the walkers are down below.)
@@ -206,25 +141,17 @@ function Street({ life, crowd }: Props) {
       clear.current.z = playerFocus.z;
       clear.current.ux = Math.sin(cameraView.yaw);
       clear.current.uz = Math.cos(cameraView.yaw);
-      clear.current.far = playerStreet.up
-        ? 0
-        : CAMERA_DISTANCE * cameraInput.zoom + 1.5;
+      clear.current.far = playerStreet.up ? 0 : CAMERA_DISTANCE * cameraInput.zoom + 1.5;
       writeWalkers(life, slots, clear.current);
-      if (placedFor.current !== drawnInFull.version) {
-        placedFor.current = drawnInFull.version;
+      // Sellers are placed again when the set drawn in full changes, or when any of them moved (their day: crowd.version).
+      const placed = drawnInFull.version * 100003 + (crowd?.version ?? 0);
+      if (placedFor.current !== placed) {
+        placedFor.current = placed;
         writeStanding(standing, walkers, 0, sellers, slots, life.time);
       }
       // Touts do move: they are placed every frame.
-      writeStanding(
-        standing,
-        walkers,
-        sellers,
-        standing.length,
-        slots,
-        life.time
-      );
-      for (const mesh of [b, h, l, a, o])
-        mesh.instanceMatrix.needsUpdate = true;
+      writeStanding(standing, walkers, sellers, standing.length, slots, life.time);
+      for (const mesh of [b, h, l, a, o]) mesh.instanceMatrix.needsUpdate = true;
     }
     VEHICLE_KINDS.forEach((kind) => {
       const mesh = vehicleRefs[kind].current;
@@ -254,50 +181,18 @@ function Street({ life, crowd }: Props) {
     safely(() => {
       // The street's own idea of where the player is: someone up on a footbridge is not in
       // the road, so the traffic under them does not brake.
-      stepStreetLife(
-        life,
-        Math.min(delta, MAX_STEP),
-        playerStreet.x,
-        playerStreet.z
-      );
+      stepStreetLife(life, Math.min(delta, MAX_STEP), playerStreet.x, playerStreet.z);
       show();
     });
   });
 
   return (
     <>
-      <Many
-        meshRef={body}
-        geometry={shapes.body}
-        count={people}
-        colours={colours.body}
-        shadow
-      />
-      <Many
-        meshRef={head}
-        geometry={shapes.head}
-        count={people}
-        colours={colours.head}
-      />
-      <Many
-        meshRef={legs}
-        geometry={shapes.leg}
-        count={people * 2}
-        colours={colours.legs}
-        shadow
-      />
-      <Many
-        meshRef={arms}
-        geometry={shapes.arm}
-        count={people * 2}
-        colours={colours.arms}
-      />
-      <Many
-        meshRef={loads}
-        geometry={shapes.load}
-        count={people > 0 ? Math.max(1, walkers) : 0}
-        colours={colours.loads}
-      />
+      <Many meshRef={body} geometry={shapes.body} count={people} colours={colours.body} shadow />
+      <Many meshRef={head} geometry={shapes.head} count={people} colours={colours.head} />
+      <Many meshRef={legs} geometry={shapes.leg} count={people * 2} colours={colours.legs} shadow />
+      <Many meshRef={arms} geometry={shapes.arm} count={people * 2} colours={colours.arms} />
+      <Many meshRef={loads} geometry={shapes.load} count={people > 0 ? Math.max(1, walkers) : 0} colours={colours.loads} />
       {VEHICLE_KINDS.map((kind) => (
         <Many
           key={kind}
@@ -313,10 +208,7 @@ function Street({ life, crowd }: Props) {
 }
 
 /** Catches a failure while the crowd is being set up, and carries on without it. */
-class WithoutCrowd extends Component<
-  { children: ReactNode },
-  { failed: boolean }
-> {
+class WithoutCrowd extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
 
   static getDerivedStateFromError() {

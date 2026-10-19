@@ -79,9 +79,9 @@ export function poseMove(pose: string): FightMove | null {
 }
 
 /**
- * The moves that can have an animation file, in /public/models: dance-legwork.fbx,
- * dance-shaku.fbx, dance-bounce.fbx, dance-whine.fbx, dance-groove.fbx, and for resting
- * dance-sit.fbx (Mixamo "Sitting Idle") and dance-lie.fbx (Mixamo "Sleeping Idle" or
+ * The moves that can have an animation file, in /public/models-glb: dance-legwork.glb,
+ * dance-shaku.glb, dance-bounce.glb, dance-whine.glb, dance-groove.glb, and for resting
+ * dance-sit.glb (Mixamo "Sitting Idle") and dance-lie.glb (Mixamo "Sleeping Idle" or
  * "Laying Idle"). Any file from Mixamo will do: the name of the file decides which move
  * it is. A move with no file is still done, by bodyShift below. (Spraying money has no
  * file: it is always done by bodyShift.)
@@ -133,7 +133,7 @@ export function moveNow(pose: FightPose, now: number): FightMove | null {
   return holds(pose.move) || now - pose.started < MOVE_SECONDS[pose.move] ? pose.move : null;
 }
 
-/** The animation files a fighter can have, in /public/models: fight-idle.fbx, fight-jab.fbx ... */
+/** The animation files a fighter can have, in /public/models-glb: fight-idle.glb, fight-jab.glb ... */
 export const FIGHT_CLIPS = ["idle", "jab", "heavy", "block", "dodge", "hit", "ko", "win"] as const;
 
 /**

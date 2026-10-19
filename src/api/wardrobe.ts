@@ -7,6 +7,10 @@ export type Outfit = {
   top: string;
   bottom: string;
   shoes: string;
+  /** Native wear drawn over the clothes (dressShapes.ts), or "". */
+  dress: string;
+  /** Who it is cut for: "man", "woman" or "any". */
+  who: string;
   /** How many of it the player has. */
   owned: number;
 };

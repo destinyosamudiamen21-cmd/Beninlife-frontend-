@@ -16,7 +16,28 @@ export type PoliceStop = {
   minutes: number;
   money: number;
   news: string[];
+  /** "foot", "car" (pulled over) or "caught" (at the end of a chase). */
+  kind: string;
+  /** The checkpoint or the patrol. */
+  place: string;
+  /** The police took the car to their yard. */
+  car_taken: boolean;
+  /** They drove off: the chase is on. */
+  fled: boolean;
 };
+
+/** A police patrol's route: a closed loop it goes round for ever at `speed` metres a second. */
+export type PatrolRoute = { id: string; district: string; kind: "van" | "foot"; speed: number; points: [number, number][]; phase: number };
+export type Patrols = { now_ms: number; routes: PatrolRoute[]; wanted: number };
+
+/** The stop a patrol opened as the player moved, or null. */
+export function fetchStop(playerId: string): Promise<PoliceStop | null> {
+  return request<PoliceStop | null>(`/players/${playerId}/police/stop`);
+}
+
+export function fetchPatrols(playerId: string): Promise<Patrols> {
+  return request<Patrols>(`/players/${playerId}/police/patrols`);
+}
 
 /** The officers call the player over. Refused (409) unless the server has them at that checkpoint. */
 export function getStopped(playerId: string, checkpoint: string): Promise<PoliceStop> {

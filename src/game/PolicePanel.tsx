@@ -9,6 +9,8 @@ type Props = {
   /** Things that came due while they were held (a missed class), to show afterwards. */
   onNews: (lines: string[]) => void;
   onDone: () => void;
+  /** They zoomed off: the panel goes, the chase starts. */
+  onFled?: () => void;
 };
 
 /**
@@ -16,7 +18,7 @@ type Props = {
  * Everything is decided on the server; this only shows the conversation and sends back
  * which button was pressed.
  */
-export function PolicePanel({ playerId, stop: first, onMoney, onNews, onDone }: Props) {
+export function PolicePanel({ playerId, stop: first, onMoney, onNews, onDone, onFled }: Props) {
   const [stop, setStop] = useState(first);
   const [said, setSaid] = useState<string[]>(first.lines);
   const [busy, setBusy] = useState(false);
@@ -32,6 +34,7 @@ export function PolicePanel({ playerId, stop: first, onMoney, onNews, onDone }: 
       setSaid((lines) => [...lines, `You: ${label}`, ...next.lines]);
       onMoney(next.money);
       if (next.news.length) onNews(next.news);
+      if (next.fled) onFled?.();
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "They did not hear you. Try again.");
     } finally {
@@ -57,6 +60,7 @@ export function PolicePanel({ playerId, stop: first, onMoney, onNews, onDone }: 
         .cop-choices { display: flex; flex-direction: column; gap: 6px; }
         .cop-choices button { text-align: left; border: 1.5px solid #3a4352; background: #1d2129; color: #eef0f3; border-radius: 10px; padding: 10px 12px; font-weight: 700; font-size: 14px; }
         .cop-choices button.pay { border-color: #c79a2b; }
+        .cop-choices button.run { border-color: #d63031; color: #ffb3a7; }
         .cop-done { width: 100%; border: none; background: #2f6f5e; color: #fff; border-radius: 10px; padding: 11px; font-weight: 800; font-size: 15px; }
         .cop-small { font-size: 12px; color: #9aa6b8; margin-top: 8px; }
       `}</style>
@@ -65,7 +69,7 @@ export function PolicePanel({ playerId, stop: first, onMoney, onNews, onDone }: 
           <div className="cop-badge">NPF</div>
           <div>
             <strong>{stop.officer}</strong>
-            <span>Checkpoint{stop.paid ? ` · ₦${stop.paid.toLocaleString()} paid` : ""}{stop.minutes ? ` · ${Math.round(stop.minutes / 60)} h lost` : ""}</span>
+            <span>{stop.place || "Checkpoint"}{stop.paid ? ` · ₦${stop.paid.toLocaleString()} paid` : ""}{stop.minutes ? ` · ${Math.round(stop.minutes / 60)} h lost` : ""}</span>
           </div>
         </div>
         <div className="cop-lines">
@@ -90,7 +94,7 @@ export function PolicePanel({ playerId, stop: first, onMoney, onNews, onDone }: 
         ) : (
           <div className="cop-choices">
             {stop.choices.map((choice) => (
-              <button key={choice.id} type="button" className={choice.id === "settle" ? "pay" : ""} onClick={() => void choose(choice.id, choice.label)} disabled={busy}>
+              <button key={choice.id} type="button" className={choice.id === "settle" ? "pay" : choice.id === "zoom" ? "run" : ""} onClick={() => void choose(choice.id, choice.label)} disabled={busy}>
                 {choice.label}
               </button>
             ))}

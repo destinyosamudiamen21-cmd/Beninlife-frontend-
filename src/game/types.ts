@@ -40,6 +40,12 @@ export type WorldEvent =
    * To a driver: `passenger` got "in" or "out".
    */
   | { type: "ride"; driver?: string; x?: number; z?: number; passenger?: string; kind?: string }
+  /** A police patrol stopped this player as they moved (`kind`: "car", "foot" or "caught"): fetch the stop to see it. */
+  | { type: "police"; stop: string; kind: string }
+  /** A police chase: "on" (for `seconds`), "lost" (they got away) or "caught". */
+  | { type: "chase"; state: "on" | "lost" | "caught"; seconds?: number }
+  /** The police took the car to their yard: the player is on foot. */
+  | { type: "car_taken" }
   /** A passenger: the car they are in drove into another district. */
   | { type: "drove"; district: string; x: number; z: number }
   /** Something happened to this player: `kind` says what ("vip": `name` brought them into a booth; "saved": `name` saved their number). */

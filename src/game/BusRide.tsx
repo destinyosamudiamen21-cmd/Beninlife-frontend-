@@ -6,7 +6,7 @@ export type RideKind = "bus" | "keke" | "bike" | "cab";
 const RIDE_SECONDS = 6;   // unless the server says how long this ride is
 
 // What is said on the way. {to} is where the ride is going.
-const RIDES: Record<RideKind, { kicker: string; shouts: string[] }> = {
+export const RIDES: Record<RideKind, { kicker: string; shouts: string[] }> = {
   bus: {
     kicker: "On the bus",
     shouts: [

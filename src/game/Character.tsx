@@ -1,16 +1,6 @@
-import {
-  Component,
-  Suspense,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { Component, Suspense, use, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useFrame } from "@react-three/fiber";
-import { useAnimations, useFBX } from "@react-three/drei";
+import { useAnimations } from "@react-three/drei";
 import {
   LoopOnce,
   LoopRepeat,
@@ -26,10 +16,12 @@ import {
   type Object3D,
   type Texture,
 } from "three";
-import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Look } from "../api/appearance";
 import { stayOnSpot } from "./clipFit";
+import { DressLayer, measureDressable, type Dressable } from "./DressLayer";
 import {
   FIGHT_CLIPS,
   MOVE_SECONDS,
@@ -52,47 +44,41 @@ import {
 } from "./tint";
 
 // One entry per body the server offers. `height` is how tall the model should stand, in metres.
-// `fight` is the start of the names of its fighting animations: "/models/fight-" + "jab" + ".fbx".
-type BodyConfig = {
-  model: string;
-  walk: string;
-  run: string;
-  height: number;
-  fight: string;
-};
+// `fight` is the start of the names of its fighting animations: "/models-glb/fight-" + "jab" + ".glb".
+type BodyConfig = { model: string; walk: string; run: string; height: number; fight: string };
 
+// The models are small GLB files (made from the Mixamo FBX files by scripts/shrink-models.mjs):
+// the two bodies, packed, and the animations with no body in them at all, only bones moving.
+const MODELS = "/models-glb/";
 // Fighting animations made for no body in particular. Every body falls back to these.
-const SHARED_FIGHT = "/models/fight-";
-// Dances are the same files for every body: "/models/dance-" + "legwork" + ".fbx".
+const SHARED_FIGHT = `${MODELS}fight-`;
+// Dances are the same files for every body: MODELS + "dance-" + "legwork" + ".glb".
 const DANCE = "dance-";
 const FIGHT_KEYS = FIGHT_CLIPS.map((name) => `fight-${name}`);
 
 const MAN: BodyConfig = {
-  model: "/models/character.fbx",
-  walk: "/models/walk.fbx",
-  run: "/models/run.fbx",
+  model: `${MODELS}character.glb`,
+  walk: `${MODELS}walk.glb`,
+  run: `${MODELS}run.glb`,
   height: 1.75,
   fight: SHARED_FIGHT,
 };
 const WOMAN: BodyConfig = {
-  model: "/models/woman.fbx",
-  walk: "/models/woman-walk.fbx",
-  run: "/models/woman-run.fbx",
+  model: `${MODELS}woman.glb`,
+  walk: `${MODELS}woman-walk.glb`,
+  run: `${MODELS}woman-run.glb`,
   height: 1.63,
-  fight: "/models/woman-fight-",
+  fight: `${MODELS}woman-fight-`,
 };
-const BODIES: Record<string, BodyConfig | undefined> = {
-  man: MAN,
-  woman: WOMAN,
-};
+const BODIES: Record<string, BodyConfig | undefined> = { man: MAN, woman: WOMAN };
 
-const FALLBACK_SCALE = 0.01; // only used if a model has no skeleton to measure
-const WALK_THRESHOLD = 0.3; // metres per second
-const RUN_THRESHOLD = 2.8; // between walk (2) and sprint (3.5)
-const BLEND_RATE = 12; // higher is a snappier change between animations
-const FIGHT_BLEND_RATE = 22; // a punch has to start at once
+const FALLBACK_SCALE = 0.01;   // only used if a model has no skeleton to measure
+const WALK_THRESHOLD = 0.3;    // metres per second
+const RUN_THRESHOLD = 2.8;     // between walk (2) and sprint (3.5)
+const BLEND_RATE = 12;         // higher is a snappier change between animations
+const FIGHT_BLEND_RATE = 22;   // a punch has to start at once
 const TEXTURE_RETRY_SECONDS = 0.25;
-const TEXTURE_RETRIES = 40; // give embedded textures 10 seconds to load, then stop asking
+const TEXTURE_RETRIES = 40;    // give embedded textures 10 seconds to load, then stop asking
 const MIXAMO_PREFIX = /^mixamorig\d*/;
 const DEBUG_CHARACTER = false; // set to true to log each model's size and parts once
 
@@ -124,20 +110,13 @@ function findBonePrefix(root: Object3D): string {
   return prefix ?? "mixamorig";
 }
 
-function namedClip(
-  source: Group,
-  name: string,
-  prefix: string
-): AnimationClip | null {
+function namedClip(source: Group, name: string, prefix: string): AnimationClip | null {
   const best = source.animations.reduce<AnimationClip | undefined>(
-    (top, clip) =>
-      !top || clip.tracks.length > top.tracks.length ? clip : top,
-    undefined
+    (top, clip) => (!top || clip.tracks.length > top.tracks.length ? clip : top),
+    undefined,
   );
   if (!best || best.tracks.length === 0) {
-    console.warn(
-      `[Character] "${name}" has no animation data. Re-download it from Mixamo.`
-    );
+    console.warn(`[Character] "${name}" has no animation data. Re-download it from Mixamo.`);
     return null;
   }
   const copy = best.clone();
@@ -154,6 +133,38 @@ function namedClip(
 
 const optionalFiles = new Map<string, Promise<Group | null>>();
 
+// One loader for every model file. The meshopt decoder unpacks the bodies' compressed shapes;
+// it is part of three.js, so nothing is fetched from anywhere else.
+const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+
+/** A GLB file as one Group, its animations on it (as an FBX file arrives). */
+async function readModel(buffer: ArrayBuffer): Promise<Group> {
+  const gltf = await gltfLoader.parseAsync(buffer, "");
+  gltf.scene.animations = gltf.animations;
+  return gltf.scene;
+}
+
+// The body and its walking and running: everything a character needs before it can be
+// drawn. Loaded once each, shared by everyone, and waited for with Suspense.
+const neededFiles = new Map<string, Promise<Group>>();
+
+function loadNeeded(url: string): Promise<Group> {
+  let pending = neededFiles.get(url);
+  if (!pending) {
+    pending = fetch(url).then(async (response) => {
+      if (!response.ok) throw new Error(`${url}: ${response.status}`);
+      return readModel(await response.arrayBuffer());
+    });
+    neededFiles.set(url, pending);
+  }
+  return pending;
+}
+
+/** The model file at `url`, waiting (Suspense) until it has arrived. */
+function useModelFile(url: string): Group {
+  return use(loadNeeded(url));
+}
+
 function loadOptional(url: string): Promise<Group | null> {
   let pending = optionalFiles.get(url);
   if (!pending) {
@@ -162,7 +173,7 @@ function loadOptional(url: string): Promise<Group | null> {
         // The dev server answers a missing file with the game's own web page.
         const kind = response.headers.get("content-type") ?? "";
         if (!response.ok || kind.includes("text/html")) return null;
-        return new FBXLoader().parse(await response.arrayBuffer(), "");
+        return readModel(await response.arrayBuffer());
       })
       .catch((error: unknown) => {
         console.warn(`[Character] could not read ${url}:`, error);
@@ -177,11 +188,7 @@ function loadOptional(url: string): Promise<Group | null> {
 function hipsHeight(root: Object3D, prefix: string): number {
   let height = 0;
   root.traverse((child) => {
-    if (
-      height === 0 &&
-      (child as Bone).isBone &&
-      child.name.replace(MIXAMO_PREFIX, prefix) === `${prefix}Hips`
-    ) {
+    if (height === 0 && (child as Bone).isBone && child.name.replace(MIXAMO_PREFIX, prefix) === `${prefix}Hips`) {
       height = child.position.y;
     }
   });
@@ -195,46 +202,28 @@ function hipsHeight(root: Object3D, prefix: string): number {
  * a shorter fighter keeps their feet on the floor. Returns null if it cannot move this
  * body at all.
  */
-function fightClip(
-  source: Group,
-  name: string,
-  prefix: string,
-  model: Object3D,
-  restHips: number
-): AnimationClip | null {
+function fightClip(source: Group, name: string, prefix: string, model: Object3D, restHips: number): AnimationClip | null {
   try {
     const clip = namedClip(source, name, prefix);
     if (!clip) return null;
 
     const hips = `${prefix}Hips`;
-    const boneOf = (trackName: string) =>
-      trackName.slice(0, trackName.lastIndexOf("."));
+    const boneOf = (trackName: string) => trackName.slice(0, trackName.lastIndexOf("."));
     clip.tracks = clip.tracks.filter(
       (track) =>
         model.getObjectByName(boneOf(track.name)) !== undefined &&
-        (track.name.endsWith(".quaternion") ||
-          track.name === `${hips}.position`)
+        (track.name.endsWith(".quaternion") || track.name === `${hips}.position`),
     );
     if (clip.tracks.length === 0) {
-      console.warn(
-        `[Character] "${name}" does not fit this body's skeleton, so it is not used.`
-      );
+      console.warn(`[Character] "${name}" does not fit this body's skeleton, so it is not used.`);
       return null;
     }
 
     const theirs = hipsHeight(source, prefix);
-    const position = clip.tracks.find(
-      (track) => track.name === `${hips}.position`
-    );
-    if (
-      position &&
-      restHips > 0 &&
-      theirs > 0 &&
-      Math.abs(restHips / theirs - 1) > 0.02
-    ) {
+    const position = clip.tracks.find((track) => track.name === `${hips}.position`);
+    if (position && restHips > 0 && theirs > 0 && Math.abs(restHips / theirs - 1) > 0.02) {
       const ratio = restHips / theirs;
-      for (let i = 0; i < position.values.length; i++)
-        position.values[i] *= ratio;
+      for (let i = 0; i < position.values.length; i++) position.values[i] *= ratio;
     }
     return clip;
   } catch (error) {
@@ -246,17 +235,11 @@ function fightClip(
 const NO_CLIPS: AnimationClip[] = [];
 
 /** The file a move is played from: the body's own if it has one, or else the one every body shares. */
-async function moveSource(
-  body: BodyConfig,
-  key: string
-): Promise<Group | null> {
-  if (key.startsWith(DANCE)) return loadOptional(`/models/${key}.fbx`);
+async function moveSource(body: BodyConfig, key: string): Promise<Group | null> {
+  if (key.startsWith(DANCE)) return loadOptional(`${MODELS}${key}.glb`);
   const name = key.slice("fight-".length);
-  const own =
-    body.fight === SHARED_FIGHT
-      ? null
-      : await loadOptional(`${body.fight}${name}.fbx`);
-  return own ?? loadOptional(`${SHARED_FIGHT}${name}.fbx`);
+  const own = body.fight === SHARED_FIGHT ? null : await loadOptional(`${body.fight}${name}.glb`);
+  return own ?? loadOptional(`${SHARED_FIGHT}${name}.glb`);
 }
 
 /**
@@ -269,12 +252,7 @@ async function moveSource(
  * together arrive together: each arrival makes every animation start over for a moment,
  * so a fighter's eight moves must not turn up one at a time.
  */
-function useMoveClips(
-  body: BodyConfig,
-  prefix: string,
-  model: Object3D,
-  restHips: number
-): { clips: AnimationClip[]; ask: (keys: readonly string[]) => void } {
+function useMoveClips(body: BodyConfig, prefix: string, model: Object3D, restHips: number): { clips: AnimationClip[]; ask: (keys: readonly string[]) => void } {
   const [clips, setClips] = useState<AnimationClip[]>(NO_CLIPS);
   const asked = useRef(new Set<string>());
   const current = useRef<Object3D | null>(model);
@@ -308,28 +286,19 @@ function useMoveClips(
           const clip = fightClip(source, key, prefix, model, restHips);
           if (clip && key.startsWith(DANCE)) {
             // A dance goes round and round on the spot, so any travelling in it is taken out.
-            const hips = clip.tracks.find(
-              (track) => track.name === `${prefix}Hips.position`
-            );
+            const hips = clip.tracks.find((track) => track.name === `${prefix}Hips.position`);
             if (hips) stayOnSpot(hips.times, hips.values);
             danceFileReady(key.slice(DANCE.length));
           }
           return clip;
-        })
+        }),
       ).then((found) => {
-        const arrived = found.filter(
-          (clip): clip is AnimationClip => clip !== null
-        );
+        const arrived = found.filter((clip): clip is AnimationClip => clip !== null);
         if (arrived.length === 0 || current.current !== model) return;
-        setClips((loaded) => [
-          ...loaded,
-          ...arrived.filter(
-            (clip) => !loaded.some((other) => other.name === clip.name)
-          ),
-        ]);
+        setClips((loaded) => [...loaded, ...arrived.filter((clip) => !loaded.some((other) => other.name === clip.name))]);
       });
     },
-    [body, prefix, model, restHips]
+    [body, prefix, model, restHips],
   );
 
   return { clips, ask };
@@ -341,16 +310,12 @@ type Part = "skin" | "hair" | "top" | "bottom" | "shoes";
 type TintedMaterial = Material & { color: Color; map?: Texture | null };
 // One mesh's material, plus where on the texture that mesh draws from.
 // `average` is filled in the first time the texture can be read.
-type TintTarget = {
-  material: TintedMaterial;
-  uv: UVSource | null;
-  average?: RGB | null;
-};
+type TintTarget = { material: TintedMaterial; uv: UVSource | null; average?: RGB | null };
 type Parts = Record<Part, TintTarget[]>;
 
 const PARTS: Part[] = ["skin", "hair", "top", "bottom", "shoes"];
 
-const LOOK_FIELD: Record<Part, keyof Look> = {
+const LOOK_FIELD: Record<Part, Exclude<keyof Look, "dress">> = {
   skin: "skin_tone",
   hair: "hair_color",
   top: "top_color",
@@ -381,6 +346,8 @@ type Prepared = {
   parts: Parts;
   materials: Material[];
   report: string[];
+  /** Where its joints are at rest, for native wear (DressLayer). Null if it has not got the bones. */
+  dressable: Dressable | null;
 };
 
 const bonePosition = new Vector3();
@@ -415,6 +382,7 @@ function prepareModel(source: Group, targetHeight: number): Prepared {
   model.updateMatrixWorld(true);
   const nativeHeight = skeletonHeight(model);
   const scale = nativeHeight ? targetHeight / nativeHeight : FALLBACK_SCALE;
+  const dressable = measureDressable(model, scale);
 
   const meshes: Mesh[] = [];
   model.traverse((child) => {
@@ -437,32 +405,30 @@ function prepareModel(source: Group, targetHeight: number): Prepared {
   const materials: Material[] = [];
   const report: string[] = [
     nativeHeight
-      ? `size: ${nativeHeight.toFixed(1)} units tall, scaled by ${scale.toFixed(
-          5
-        )} to ${targetHeight} m`
+      ? `size: ${nativeHeight.toFixed(1)} units tall, scaled by ${scale.toFixed(5)} to ${targetHeight} m`
       : `size: no skeleton found, using scale ${FALLBACK_SCALE}`,
   ];
 
   for (const mesh of meshes) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    const uv =
-      (mesh.geometry.getAttribute("uv") as UVSource | undefined) ?? null;
+    const uv = (mesh.geometry.getAttribute("uv") as UVSource | undefined) ?? null;
 
     // Every mesh gets its own copy of its material. That keeps one player's colours off
     // another player, and lets a shirt and trousers that share a texture be tinted apart.
     const ownCopy = (original: Material): Material => {
       const copy = original.clone();
       materials.push(copy);
+      // As converted from the Mixamo files: every colour has an opacity of 0 (the woman's hair,
+      // drawn see-through, would vanish), and a slight shine that makes skin look like plastic.
+      if (copy.opacity === 0) copy.opacity = 1;
+      const standard = copy as Material & { roughness?: number; metalness?: number };
+      if (typeof standard.roughness === "number") standard.roughness = Math.max(standard.roughness, 0.8);
+      if (typeof standard.metalness === "number") standard.metalness = 0;
 
       const sharedSheet = (spread.get(original)?.size ?? 0) > 1;
-      const part =
-        partFor(mesh.name) ?? (sharedSheet ? null : partFor(original.name));
-      report.push(
-        `${mesh.name} (${original.name || "unnamed"}) -> ${
-          part ?? "not tinted"
-        }`
-      );
+      const part = partFor(mesh.name) ?? (sharedSheet ? null : partFor(original.name));
+      report.push(`${mesh.name} (${original.name || "unnamed"}) -> ${part ?? "not tinted"}`);
 
       if (part && "color" in copy) {
         const tinted = copy as TintedMaterial;
@@ -477,7 +443,7 @@ function prepareModel(source: Group, targetHeight: number): Prepared {
       : ownCopy(mesh.material);
   }
 
-  return { model, scale, parts, materials, report };
+  return { model, scale, parts, materials, report, dressable };
 }
 
 const pixelCache = new WeakMap<Texture, Pixels | null>();
@@ -489,10 +455,7 @@ const pixelCache = new WeakMap<Texture, Pixels | null>();
 function texturePixels(texture: Texture): Pixels | null | "pending" {
   if (pixelCache.has(texture)) return pixelCache.get(texture) ?? null;
 
-  const image = texture.image as
-    | (CanvasImageSource & { complete?: boolean })
-    | null
-    | undefined;
+  const image = texture.image as (CanvasImageSource & { complete?: boolean }) | null | undefined;
   if (!image || image.complete === false) return "pending";
 
   const pixels = readPixels(image);
@@ -513,12 +476,7 @@ function targetAverage(target: TintTarget): RGB | null | "pending" {
   if (pixels === "pending") return "pending";
 
   target.average = pixels
-    ? averageLinear(
-        pixels,
-        map.colorSpace === SRGBColorSpace,
-        target.uv,
-        map.flipY
-      )
+    ? averageLinear(pixels, map.colorSpace === SRGBColorSpace, target.uv, map.flipY)
     : null;
   return target.average;
 }
@@ -562,13 +520,13 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
   const groupRef = useRef<Group>(null);
   const shiftRef = useRef<Group>(null);
 
-  const base = useFBX(body.model);
-  const walkFbx = useFBX(body.walk);
-  const runFbx = useFBX(body.run);
+  const base = useModelFile(body.model);
+  const walkFbx = useModelFile(body.walk);
+  const runFbx = useModelFile(body.run);
 
-  const { model, scale, parts, materials, report } = useMemo(
+  const { model, scale, parts, materials, report, dressable } = useMemo(
     () => prepareModel(base, body.height),
-    [base, body.height]
+    [base, body.height],
   );
   const prefix = useMemo(() => findBonePrefix(model), [model]);
 
@@ -581,30 +539,19 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
   // Standing, walking and running are made once; the fighting and dancing ones join them as they arrive.
   const baseClips = useMemo(
     () =>
-      [
-        namedClip(base, "idle", prefix),
-        namedClip(walkFbx, "walk", prefix),
-        namedClip(runFbx, "run", prefix),
-      ].filter((clip): clip is AnimationClip => clip !== null),
-    [base, walkFbx, runFbx, prefix]
+      [namedClip(base, "idle", prefix), namedClip(walkFbx, "walk", prefix), namedClip(runFbx, "run", prefix)].filter(
+        (clip): clip is AnimationClip => clip !== null,
+      ),
+    [base, walkFbx, runFbx, prefix],
   );
-  const clips = useMemo(
-    () => (moveClips.length > 0 ? [...baseClips, ...moveClips] : baseClips),
-    [baseClips, moveClips]
-  );
+  const clips = useMemo(() => (moveClips.length > 0 ? [...baseClips, ...moveClips] : baseClips), [baseClips, moveClips]);
 
   const { actions } = useAnimations(clips, groupRef);
   const weights = useRef<Record<string, number>>({ idle: 1 });
   const moveStarted = useRef(0);
-  const needed = useRef<string[]>([]); // the one animation the move in hand needs
+  const needed = useRef<string[]>([]);   // the one animation the move in hand needs
   const fightFailed = useRef(false);
-  const shift = useRef<BodyShift>({
-    forward: 0,
-    side: 0,
-    lift: 0,
-    lean: 0,
-    roll: 0,
-  });
+  const shift = useRef<BodyShift>({ forward: 0, side: 0, lift: 0, lean: 0, roll: 0 });
   const retriesLeft = useRef(0);
   const retryTimer = useRef(0);
 
@@ -614,10 +561,7 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
     weights.current = { idle: 1 };
     moveStarted.current = 0;
     for (const state of STATES) {
-      actions[state]
-        ?.reset()
-        .setEffectiveWeight(state === "idle" ? 1 : 0)
-        .play();
+      actions[state]?.reset().setEffectiveWeight(state === "idle" ? 1 : 0).play();
     }
     actions["fight-idle"]?.reset().setEffectiveWeight(0).play();
   }, [actions]);
@@ -639,8 +583,7 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
 
   useFrame((_, delta) => {
     const wanted = stateForSpeed(speedRef.current);
-    let target: string =
-      FALLBACKS[wanted].find((state) => actions[state]) ?? "idle";
+    let target: string = FALLBACKS[wanted].find((state) => actions[state]) ?? "idle";
     let rate = BLEND_RATE;
     let animated = false; // is an animation file doing the current move?
 
@@ -660,9 +603,7 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
         const key = move ? clipFor(move) : null;
         if (key && key !== needed.current[0]) needed.current = [key]; // a list of one, made only when the move changes
         if (key) ask(needed.current);
-        const action: AnimationAction | null = key
-          ? actions[key] ?? null
-          : null;
+        const action: AnimationAction | null = key ? (actions[key] ?? null) : null;
         if (move && key && action) {
           const dance = key.startsWith(DANCE);
           animated = true;
@@ -686,19 +627,12 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
         bodyShift(move, now - fight.started, animated, shift.current);
       } catch (error) {
         fightFailed.current = true;
-        console.error(
-          "[Character] fighting moves switched off after an error:",
-          error
-        );
+        console.error("[Character] fighting moves switched off after an error:", error);
       }
     }
     const body3d = shiftRef.current;
     if (body3d) {
-      body3d.position.set(
-        shift.current.side,
-        shift.current.lift,
-        shift.current.forward
-      );
+      body3d.position.set(shift.current.side, shift.current.lift, shift.current.forward);
       body3d.rotation.set(shift.current.lean, 0, shift.current.roll);
     }
 
@@ -707,9 +641,7 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
       const action = actions[clip.name];
       if (!action) continue;
       const goal = clip.name === target ? 1 : 0;
-      const weight =
-        (weights.current[clip.name] ?? 0) +
-        (goal - (weights.current[clip.name] ?? 0)) * blend;
+      const weight = (weights.current[clip.name] ?? 0) + (goal - (weights.current[clip.name] ?? 0)) * blend;
       weights.current[clip.name] = weight;
       action.setEffectiveWeight(weight);
     }
@@ -719,9 +651,7 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
       retryTimer.current += delta;
       if (retryTimer.current >= TEXTURE_RETRY_SECONDS) {
         retryTimer.current = 0;
-        retriesLeft.current = applyLook(parts, look)
-          ? retriesLeft.current - 1
-          : 0;
+        retriesLeft.current = applyLook(parts, look) ? retriesLeft.current - 1 : 0;
       }
     }
   });
@@ -730,6 +660,7 @@ function CharacterModel({ body, speedRef, look, fight }: ModelProps) {
     <group ref={shiftRef}>
       <group ref={groupRef}>
         <primitive object={model} scale={scale} />
+        <DressLayer dressable={dressable} look={look} scale={scale} />
       </group>
     </group>
   );
@@ -746,10 +677,7 @@ class ModelBoundary extends Component<BoundaryProps, { failed: boolean }> {
   }
 
   componentDidCatch(error: unknown) {
-    console.error(
-      "[Character] model failed to load, using the fallback:",
-      error
-    );
+    console.error("[Character] model failed to load, using the fallback:", error);
   }
 
   render() {
@@ -759,30 +687,16 @@ class ModelBoundary extends Component<BoundaryProps, { failed: boolean }> {
 
 export function Character({ speedRef, look, fight }: Props) {
   const body = (look ? BODIES[look.body] : undefined) ?? MAN;
-  const fallback =
-    body === MAN ? null : (
-      <CharacterModel
-        body={MAN}
-        speedRef={speedRef}
-        look={look}
-        fight={fight}
-      />
-    );
+  const fallback = body === MAN ? null : <CharacterModel body={MAN} speedRef={speedRef} look={look} fight={fight} />;
 
   return (
     <ModelBoundary key={body.model} fallback={fallback}>
       <Suspense fallback={null}>
-        <CharacterModel
-          body={body}
-          speedRef={speedRef}
-          look={look}
-          fight={fight}
-        />
+        <CharacterModel body={body} speedRef={speedRef} look={look} fight={fight} />
       </Suspense>
     </ModelBoundary>
   );
 }
 
-useFBX.preload(MAN.model);
-useFBX.preload(MAN.walk);
-useFBX.preload(MAN.run);
+// Start fetching the usual body and its walk at once, before the first character asks.
+for (const url of [MAN.model, MAN.walk, MAN.run]) loadNeeded(url).catch(() => {}); // a failure shows when it is asked for
