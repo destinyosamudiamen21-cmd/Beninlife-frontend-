@@ -112,6 +112,10 @@ type Props = {
   clockOffset: number;
   /** A chase is on: a van with its lights going follows the player. */
   chasing: boolean;
+  /** ... on foot: two officers run after them instead. */
+  onFoot?: boolean;
+  /** How wanted they are: at three stars and more a second van joins in. */
+  stars?: number;
 };
 
 /**
@@ -119,7 +123,7 @@ type Props = {
  * walking the pavement by the market, and, in a chase, the van behind you. Where each one
  * is comes from the clock (the server works it out the same way to decide who it stops).
  */
-export function PolicePatrols({ district, routes, clockOffset, chasing }: Props) {
+export function PolicePatrols({ district, routes, clockOffset, chasing, onFoot = false, stars = 0 }: Props) {
   const here = useMemo(() => routes.filter((r) => r.district === district).map(measure), [routes, district]);
   const van = useMemo(() => toGeometry(buildVan()), []);
   const red = useMemo(() => toGeometry(buildLights("#ffffff")), []);
@@ -128,8 +132,11 @@ export function PolicePatrols({ district, routes, clockOffset, chasing }: Props)
 
   const groups = useRef(new Map<string, Group>());
   const chaser = useRef<Group | null>(null);
+  const second = useRef<Group | null>(null);
+  const runners = useRef<Group | null>(null);
   const chaseAt = useRef<{ x: number; z: number; heading: number } | null>(null);
   const walking = useRef(1.25);
+  const running = useRef(3.4);
 
   useFrame((_, delta) => {
     const now = Date.now() + clockOffset;
@@ -144,23 +151,35 @@ export function PolicePatrols({ district, routes, clockOffset, chasing }: Props)
       group.rotation.y = at.heading;
     }
     const follow = chaser.current;
-    if (follow) {
-      follow.visible = chasing;
+    const backup = second.current;
+    const feet = runners.current;
+    if (follow && backup && feet) {
+      const inCar = chasing && !onFoot;
+      follow.visible = inCar;
+      backup.visible = inCar && stars >= 3;
+      feet.visible = chasing && onFoot;
       if (!chasing) {
         chaseAt.current = null;
         return;
       }
-      const heading = driveView.active ? driveView.heading : 0;
-      const goalX = playerFocus.x - Math.sin(heading) * CHASE_BEHIND;
-      const goalZ = playerFocus.z - Math.cos(heading) * CHASE_BEHIND;
-      const now3 = chaseAt.current ?? { x: goalX - Math.sin(heading) * 30, z: goalZ - Math.cos(heading) * 30, heading };
-      const ease = 1 - Math.exp(-delta * CHASE_EASE);
+      const heading = driveView.active ? driveView.heading : Math.atan2(playerFocus.x - (chaseAt.current?.x ?? playerFocus.x), playerFocus.z - (chaseAt.current?.z ?? playerFocus.z - 1));
+      const behind = onFoot ? 5.5 : CHASE_BEHIND;
+      const goalX = playerFocus.x - Math.sin(heading) * behind;
+      const goalZ = playerFocus.z - Math.cos(heading) * behind;
+      const now3 = chaseAt.current ?? { x: goalX - Math.sin(heading) * (onFoot ? 12 : 30), z: goalZ - Math.cos(heading) * (onFoot ? 12 : 30), heading };
+      const ease = 1 - Math.exp(-delta * (onFoot ? 1.2 : CHASE_EASE));
       now3.x += (goalX - now3.x) * ease;
       now3.z += (goalZ - now3.z) * ease;
       now3.heading = Math.atan2(playerFocus.x - now3.x, playerFocus.z - now3.z);
       chaseAt.current = now3;
-      follow.position.set(now3.x, 0, now3.z);
-      follow.rotation.y = now3.heading;
+      const target = onFoot ? feet : follow;
+      target.position.set(now3.x, 0, now3.z);
+      target.rotation.y = now3.heading;
+      if (backup.visible) {
+        // The second van a little further back and to one side.
+        backup.position.set(now3.x - Math.sin(now3.heading) * 9 + Math.cos(now3.heading) * 3, 0, now3.z - Math.cos(now3.heading) * 9 - Math.sin(now3.heading) * 3);
+        backup.rotation.y = now3.heading;
+      }
     }
   });
 
@@ -185,6 +204,15 @@ export function PolicePatrols({ district, routes, clockOffset, chasing }: Props)
         ),
       )}
       <Van innerRef={(group) => (chaser.current = group)} geometry={van} red={red} blue={blue} flashing />
+      <Van innerRef={(group) => (second.current = group)} geometry={van} red={red} blue={blue} flashing />
+      {/* On foot, two officers run after them, batons out. */}
+      <group ref={runners} visible={false}>
+        {FOOT_OFFICERS.map((look, i) => (
+          <group key={i} position={[i === 0 ? -0.6 : 0.7, 0, i === 0 ? 0 : -1.4]}>
+            <Character speedRef={running} look={look} />
+          </group>
+        ))}
+      </group>
     </>
   );
 }

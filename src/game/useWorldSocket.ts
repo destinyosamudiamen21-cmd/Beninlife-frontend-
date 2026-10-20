@@ -17,7 +17,7 @@ export type Place = "street" | "home" | "private" | `venue:${string}`;
 
 // The server says which kind of place each list is about, in the same words.
 type ServerMessage =
-  | { type: "roster"; place?: string; players: RosterEntry[]; cars?: ParkedCar[] }
+  | { type: "roster"; place?: string; players: RosterEntry[]; cars?: ParkedCar[]; street_taken?: number[] }
   | { type: "snapshot"; place?: string; players: NetPlayer[] }
   | WorldEvent;
 
@@ -35,6 +35,7 @@ export function useWorldSocket(playerId: string, onEvent?: (event: WorldEvent) =
   const quietUntil = useRef(0); // the server's word on where we stand is ignored until then
   const [remotes, setRemotes] = useState<RosterEntry[]>([]);
   const [parked, setParked] = useState<ParkedCar[]>([]);   // the cars standing on this street, ours too
+  const [streetTaken, setStreetTaken] = useState<number[]>([]);   // parked street cars somebody drove off in
   const [connected, setConnected] = useState(false);
 
   // Kept in a ref so the socket always calls the newest version of it without reconnecting.
@@ -64,6 +65,10 @@ export function useWorldSocket(playerId: string, onEvent?: (event: WorldEvent) =
             .sort((a, b) => a.id.localeCompare(b.id)),
         );
         setParked(msg.cars ?? []);
+        setStreetTaken((was) => {
+          const now = msg.street_taken ?? [];
+          return was.length === now.length && was.every((value, i) => value === now[i]) ? was : now;
+        });
         return;
       }
 
@@ -175,5 +180,5 @@ export function useWorldSocket(playerId: string, onEvent?: (event: WorldEvent) =
     return latest;
   }, []);
 
-  return { playersRef, remotes, parked, connected, sendMove, sendPlace, takeServerPosition, say, signal };
+  return { playersRef, remotes, parked, streetTaken, connected, sendMove, sendPlace, takeServerPosition, say, signal };
 }

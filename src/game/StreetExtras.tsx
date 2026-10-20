@@ -24,21 +24,27 @@ type Props = {
   data: DistrictData;
   /** The door the player is standing at, or null. Called only when it changes. */
   onNearDoor: (door: Door | null) => void;
+  /** Doors drawn by something else (the houses players live in: EstateHouses.tsx), watched for here too. */
+  extraDoors?: Door[];
 };
+
+// Doors whose fronts are drawn by something else (Palm Court: PalmCourt.tsx), not by this file.
+const OWN_FRONT = new Set(["ivorypalm", "spot:palm_leasing"]);
 
 /**
  * What a district has besides its streets and buildings: the roof over its footbridge,
  * and the front of every door a player can go through and every spot they can use (a
  * shuttle stop, a buka). It also watches for the player walking up to one of them.
  */
-export function StreetExtras({ data, onNearDoor }: Props) {
-  const doors = useMemo(() => data.doors ?? [], [data]);
+export function StreetExtras({ data, onNearDoor, extraDoors }: Props) {
+  const doors = useMemo(() => [...(data.doors ?? []), ...(extraDoors ?? [])], [data, extraDoors]);
+  const drawn = useMemo(() => (data.doors ?? []).filter((door) => !OWN_FRONT.has(door.id)), [data]);
   // A district with no footbridge has no roof to draw.
   const roofs = useMemo(() => {
     const mesh = buildBridgeRoofs(data);
     return mesh.indices.length > 0 ? toGeometry(mesh) : null;
   }, [data]);
-  const fronts = useMemo(() => doors.map((door) => toGeometry(buildStreetFront(door))), [doors]);
+  const fronts = useMemo(() => drawn.map((door) => toGeometry(buildStreetFront(door))), [drawn]);
   // Ikpoba Hill has its flyover over the main road.
   const flyover = useMemo(() => {
     if (data.id !== "ikpoba") return null;
@@ -90,7 +96,7 @@ export function StreetExtras({ data, onNearDoor }: Props) {
         </>
       )}
       {fronts.map((front, index) => (
-        <mesh key={doors[index].id} geometry={front} castShadow receiveShadow>
+        <mesh key={drawn[index].id} geometry={front} castShadow receiveShadow>
           <meshLambertMaterial vertexColors />
         </mesh>
       ))}

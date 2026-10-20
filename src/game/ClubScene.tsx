@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
-import {
-  BufferAttribute,
-  BufferGeometry,
-  Color,
-  type Group,
-  type Mesh,
-  type MeshBasicMaterial,
-  type PointLight,
-} from "three";
+import { BufferAttribute, BufferGeometry, Color, type Group, type Mesh, type MeshBasicMaterial, type PointLight } from "three";
 import type { Look } from "../api/appearance";
 import {
   BEATS_PER_SECOND,
@@ -23,84 +15,28 @@ import {
   tileCentre,
   tileLook,
 } from "./clubLayout";
-import {
-  NEON_BLUE,
-  NEON_GOLD,
-  NEON_PINK,
-  SCREENS,
-  buildClubCrowd,
-  buildClubNeon,
-  buildClubRoom,
-} from "./clubShapes";
+import { NEON_BLUE, NEON_GOLD, NEON_PINK, SCREENS, buildClubCrowd, buildClubNeon, buildClubRoom } from "./clubShapes";
 import { Character } from "./Character";
+import { ClubShow } from "./ClubShow";
 import type { MeshData } from "./districtGeometry";
-import {
-  danceTurn,
-  fightClock,
-  newPose,
-  stepSpeed,
-  strike,
-  type FightPose,
-} from "./fightMoves";
+import { danceTurn, fightClock, newPose, stepSpeed, strike, type FightPose } from "./fightMoves";
 import { playerFocus } from "./focus";
 import { nearestOf, type Near } from "./nearby";
 import type { NetPlayer } from "./types";
 
-const DARK = "#0b0910"; // what shows above the walls
-const BOB_HEIGHT = 0.06; // how far the people along the walls bob to the beat
-const BARS = 7; // bars on each screen
+const DARK = "#0b0910";      // what shows above the walls
+const BOB_HEIGHT = 0.06;     // how far the people along the walls bob to the beat
+const BARS = 7;              // bars on each screen
 const STEPPED_ON = "#ffffff";
 
 // The people who work here, and the regulars who are always on the floor.
-const STAFF: Look = {
-  body: "man",
-  skin_tone: "#4b2c1c",
-  hair_color: "#17120f",
-  top_color: "#111114",
-  bottom_color: "#111114",
-  shoe_color: "#1d1d1f",
-};
-const DJ: Look = {
-  body: "man",
-  skin_tone: "#613a25",
-  hair_color: "#17120f",
-  top_color: "#c79a2b",
-  bottom_color: "#1d1d1f",
-  shoe_color: "#ede6d6",
-};
+const STAFF: Look = { body: "man", skin_tone: "#4b2c1c", hair_color: "#17120f", top_color: "#111114", bottom_color: "#111114", shoe_color: "#1d1d1f" };
+const DJ: Look = { body: "man", skin_tone: "#613a25", hair_color: "#17120f", top_color: "#c79a2b", bottom_color: "#1d1d1f", shoe_color: "#ede6d6" };
 const DANCERS: Look[] = [
-  {
-    body: "woman",
-    skin_tone: "#774a2f",
-    hair_color: "#17120f",
-    top_color: "#d63f8c",
-    bottom_color: "#1d1d1f",
-    shoe_color: "#ede6d6",
-  },
-  {
-    body: "man",
-    skin_tone: "#4b2c1c",
-    hair_color: "#17120f",
-    top_color: "#ede6d6",
-    bottom_color: "#2b3a55",
-    shoe_color: "#ede6d6",
-  },
-  {
-    body: "woman",
-    skin_tone: "#8d5a3b",
-    hair_color: "#3a2a1a",
-    top_color: "#2a9d8f",
-    bottom_color: "#ede6d6",
-    shoe_color: "#1d1d1f",
-  },
-  {
-    body: "man",
-    skin_tone: "#613a25",
-    hair_color: "#17120f",
-    top_color: "#6a4fe0",
-    bottom_color: "#3a3d42",
-    shoe_color: "#1d1d1f",
-  },
+  { body: "woman", skin_tone: "#774a2f", hair_color: "#17120f", top_color: "#d63f8c", bottom_color: "#1d1d1f", shoe_color: "#ede6d6" },
+  { body: "man", skin_tone: "#4b2c1c", hair_color: "#17120f", top_color: "#ede6d6", bottom_color: "#2b3a55", shoe_color: "#ede6d6" },
+  { body: "woman", skin_tone: "#8d5a3b", hair_color: "#3a2a1a", top_color: "#2a9d8f", bottom_color: "#ede6d6", shoe_color: "#1d1d1f" },
+  { body: "man", skin_tone: "#613a25", hair_color: "#17120f", top_color: "#6a4fe0", bottom_color: "#3a3d42", shoe_color: "#1d1d1f" },
 ];
 
 function toGeometry(mesh: MeshData): BufferGeometry {
@@ -114,27 +50,12 @@ function toGeometry(mesh: MeshData): BufferGeometry {
 }
 
 /** Someone who is always dancing in the same place: a regular on the floor, or the DJ behind his decks. */
-function Dancer({
-  x,
-  y,
-  z,
-  rot,
-  look,
-  pose,
-}: {
-  x: number;
-  y: number;
-  z: number;
-  rot: number;
-  look: Look;
-  pose: FightPose;
-}) {
+function Dancer({ x, y, z, rot, look, pose }: { x: number; y: number; z: number; rot: number; look: Look; pose: FightPose }) {
   const body = useRef<Group>(null);
   const speed = useRef(0);
   useFrame(() => {
     if (!body.current) return;
-    body.current.rotation.y =
-      rot + danceTurn(pose.move, fightClock() - pose.started);
+    body.current.rotation.y = rot + danceTurn(pose.move, fightClock() - pose.started);
     speed.current = stepSpeed(pose.move);
   });
   return (
@@ -155,17 +76,14 @@ type Props = {
 export function ClubScene({ playersRef, onNear }: Props) {
   const room = useMemo(() => toGeometry(buildClubRoom()), []);
   const neon = useMemo(() => toGeometry(buildClubNeon()), []);
-  const crowds = useMemo(
-    () => [toGeometry(buildClubCrowd(0)), toGeometry(buildClubCrowd(1))],
-    []
-  );
+  const crowds = useMemo(() => [toGeometry(buildClubCrowd(0)), toGeometry(buildClubCrowd(1))], []);
   useEffect(
     () => () => {
       room.dispose();
       neon.dispose();
       crowds.forEach((crowd) => crowd.dispose());
     },
-    [room, neon, crowds]
+    [room, neon, crowds],
   );
 
   // The regulars start their dances a moment apart, so they are not all in step.
@@ -177,7 +95,7 @@ export function ClubScene({ playersRef, onNear }: Props) {
         pose.started -= regular.delay;
         return pose;
       }),
-    []
+    [],
   );
   const mixing = useMemo(() => {
     const pose = newPose();
@@ -225,8 +143,7 @@ export function ClubScene({ playersRef, onNear }: Props) {
       if (!tile) continue;
       const look = tileLook(i, seconds);
       const material = tile.material as MeshBasicMaterial;
-      if (stood[i])
-        material.color.copy(white).multiplyScalar(0.75 + 0.25 * look.glow);
+      if (stood[i]) material.color.copy(white).multiplyScalar(0.75 + 0.25 * look.glow);
       else material.color.copy(palette[look.colour]).multiplyScalar(look.glow);
       tile.position.y = stood[i] ? 0.075 : 0.05;
     }
@@ -235,12 +152,7 @@ export function ClubScene({ playersRef, onNear }: Props) {
     for (let i = 0; i < bars.current.length; i++) {
       const bar = bars.current[i];
       if (!bar) continue;
-      const height =
-        0.25 +
-        0.75 *
-          Math.abs(
-            Math.sin(beat * Math.PI * (0.5 + (i % BARS) * 0.07) + i * 1.7)
-          );
+      const height = 0.25 + 0.75 * Math.abs(Math.sin(beat * Math.PI * (0.5 + (i % BARS) * 0.07) + i * 1.7));
       bar.scale.y = height;
       bar.position.y = bar.userData.base + (height * bar.userData.full) / 2;
     }
@@ -253,11 +165,7 @@ export function ClubScene({ playersRef, onNear }: Props) {
       const spot = spots.current[i];
       if (!spot) continue;
       const turn = seconds * 0.6 + (i * Math.PI * 2) / spots.current.length;
-      spot.position.set(
-        CLUB.floor.x + Math.cos(turn) * 3.2,
-        4.6,
-        CLUB.floor.z + Math.sin(turn) * 3.2
-      );
+      spot.position.set(CLUB.floor.x + Math.cos(turn) * 3.2, 4.6, CLUB.floor.z + Math.sin(turn) * 3.2);
     }
   });
 
@@ -267,15 +175,11 @@ export function ClubScene({ playersRef, onNear }: Props) {
   const tile = CLUB.floor.tile;
   return (
     <>
-      <color attach='background' args={[DARK]} />
+      <color attach="background" args={[DARK]} />
       {/* Dim, with colour: enough light everywhere to see faces, and pools of colour over the floor. */}
-      <ambientLight intensity={0.75} color='#b9a8ff' />
+      <ambientLight intensity={0.75} color="#b9a8ff" />
       <hemisphereLight args={["#8f7bd6", "#2a1b3d", 0.6]} />
-      <directionalLight
-        position={[CLUB.width / 2, 12, CLUB.depth + 6]}
-        intensity={0.9}
-        color='#ffd9f0'
-      />
+      <directionalLight position={[CLUB.width / 2, 12, CLUB.depth + 6]} intensity={0.9} color="#ffd9f0" />
       {[NEON_PINK, NEON_BLUE, NEON_GOLD].map((colour, index) => (
         <pointLight
           key={colour}
@@ -288,24 +192,14 @@ export function ClubScene({ playersRef, onNear }: Props) {
           decay={1}
         />
       ))}
-      <pointLight
-        position={[CLUB.bar.x + 1.5, 2.6, CLUB.bar.z]}
-        color={NEON_GOLD}
-        intensity={3}
-        distance={9}
-        decay={1}
-      />
-      <pointLight
-        position={[22.5, 3, CLUB.booths[1].z]}
-        color='#ff7ab8'
-        intensity={3}
-        distance={10}
-        decay={1}
-      />
+      <pointLight position={[CLUB.bar.x + 1.5, 2.6, CLUB.bar.z]} color={NEON_GOLD} intensity={3} distance={9} decay={1} />
+      <pointLight position={[22.5, 3, CLUB.booths[1].z]} color="#ff7ab8" intensity={3} distance={10} decay={1} />
 
       <mesh geometry={room}>
         <meshLambertMaterial vertexColors />
       </mesh>
+      {/* Lasers, the lit ceiling, and whatever the spenders buy. */}
+      <ClubShow width={CLUB.width} depth={CLUB.depth} height={CLUB.wallHeight} bar={{ x: CLUB.bar.x + 1.2, z: CLUB.bar.z }} dj={{ x: CLUB.dj.x, z: CLUB.dj.z }} />
       <mesh geometry={neon}>
         <meshBasicMaterial vertexColors toneMapped={false} />
       </mesh>
@@ -323,10 +217,7 @@ export function ClubScene({ playersRef, onNear }: Props) {
             rotation={[-Math.PI / 2, 0, 0]}
           >
             <planeGeometry args={[tile - 0.08, tile - 0.08]} />
-            <meshBasicMaterial
-              color={TILE_COLOURS[index % TILE_COLOURS.length]}
-              toneMapped={false}
-            />
+            <meshBasicMaterial color={TILE_COLOURS[index % TILE_COLOURS.length]} toneMapped={false} />
           </mesh>
         );
       })}
@@ -335,8 +226,7 @@ export function ClubScene({ playersRef, onNear }: Props) {
       {SCREENS.flatMap((screen, s) =>
         Array.from({ length: BARS }, (_, b) => {
           const width = (screen.halfX * 2 - 0.4) / BARS;
-          const base = screen.y - screen.halfY + 0.15,
-            full = screen.halfY * 2 - 0.3;
+          const base = screen.y - screen.halfY + 0.15, full = screen.halfY * 2 - 0.3;
           return (
             <mesh
               key={`${s}-${b}`}
@@ -344,20 +234,13 @@ export function ClubScene({ playersRef, onNear }: Props) {
                 bars.current[s * BARS + b] = mesh;
                 if (mesh) mesh.userData = { base, full };
               }}
-              position={[
-                screen.x - screen.halfX + 0.2 + width * (b + 0.5),
-                base + full / 2,
-                0.15,
-              ]}
+              position={[screen.x - screen.halfX + 0.2 + width * (b + 0.5), base + full / 2, 0.15]}
             >
               <planeGeometry args={[width * 0.72, full]} />
-              <meshBasicMaterial
-                color={[NEON_PINK, NEON_BLUE, NEON_GOLD][(s + b) % 3]}
-                toneMapped={false}
-              />
+              <meshBasicMaterial color={[NEON_PINK, NEON_BLUE, NEON_GOLD][(s + b) % 3]} toneMapped={false} />
             </mesh>
           );
-        })
+        }),
       )}
 
       <group ref={firstHalf}>
@@ -372,65 +255,25 @@ export function ClubScene({ playersRef, onNear }: Props) {
       </group>
 
       {REGULARS.map((regular, index) => (
-        <Dancer
-          key={index}
-          x={regular.x}
-          y={0}
-          z={regular.z}
-          rot={regular.rot}
-          look={DANCERS[regular.look % DANCERS.length]}
-          pose={dancing[index]}
-        />
+        <Dancer key={index} x={regular.x} y={0} z={regular.z} rot={regular.rot} look={DANCERS[regular.look % DANCERS.length]} pose={dancing[index]} />
       ))}
-      <Dancer
-        x={CLUB.dj.x}
-        y={CLUB.dj.stage}
-        z={CLUB.dj.z - 0.45}
-        rot={0}
-        look={DJ}
-        pose={mixing}
-      />
+      <Dancer x={CLUB.dj.x} y={CLUB.dj.stage} z={CLUB.dj.z - 0.45} rot={0} look={DJ} pose={mixing} />
       <group position={[CLUB.dj.x, CLUB.dj.stage, CLUB.dj.z - 0.45]}>
-        <Html
-          position={[0, 2.05, 0]}
-          center
-          zIndexRange={[4, 0]}
-          style={{ pointerEvents: "none" }}
-        >
-          <div className='nametag'>DJ Osa</div>
+        <Html position={[0, 2.05, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: "none" }}>
+          <div className="nametag">DJ Osa</div>
         </Html>
       </group>
 
-      <group
-        position={[CLUB.bar.keeper.x, 0, CLUB.bar.keeper.z]}
-        rotation={[0, Math.PI / 2, 0]}
-      >
+      <group position={[CLUB.bar.keeper.x, 0, CLUB.bar.keeper.z]} rotation={[0, Math.PI / 2, 0]}>
         <Character speedRef={still} look={STAFF} />
-        <Html
-          position={[0, 2.05, 0]}
-          center
-          zIndexRange={[4, 0]}
-          style={{ pointerEvents: "none" }}
-        >
-          <div className='nametag'>Bar</div>
+        <Html position={[0, 2.05, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: "none" }}>
+          <div className="nametag">Bar</div>
         </Html>
       </group>
-      <group
-        position={[
-          CLUB.bouncer.x,
-          clubFloorAt(CLUB.bouncer.x, CLUB.bouncer.z),
-          CLUB.bouncer.z,
-        ]}
-        rotation={[0, -Math.PI / 2, 0]}
-      >
+      <group position={[CLUB.bouncer.x, clubFloorAt(CLUB.bouncer.x, CLUB.bouncer.z), CLUB.bouncer.z]} rotation={[0, -Math.PI / 2, 0]}>
         <Character speedRef={still} look={STAFF} />
-        <Html
-          position={[0, 2.05, 0]}
-          center
-          zIndexRange={[4, 0]}
-          style={{ pointerEvents: "none" }}
-        >
-          <div className='nametag'>VIP</div>
+        <Html position={[0, 2.05, 0]} center zIndexRange={[4, 0]} style={{ pointerEvents: "none" }}>
+          <div className="nametag">VIP</div>
         </Html>
       </group>
     </>

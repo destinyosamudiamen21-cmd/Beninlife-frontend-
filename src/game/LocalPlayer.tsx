@@ -6,6 +6,7 @@ import { Overhead, SprayedNotes } from "./BodyExtras";
 import { Car, type CarMotion } from "./Car";
 import { carParts, readCarLook } from "./carShapes";
 import { holeAt, type Pothole, type Potholes } from "./potholes";
+import { wadeFactor } from "./weather";
 import { wrapAngle } from "./gestures";
 import { doorSpot, drive, driveView, kmh, newCar, type Box, type CarState, type CarStats } from "./carPhysics";
 import { carSound } from "./carSound";
@@ -258,6 +259,12 @@ export function LocalPlayer({
       // At the wheel.
       const input = driving.holdUntil !== undefined && Date.now() < driving.holdUntil ? HELD : readPedals();
       drive(car, input, driving.stats, dt, driving.ground, driving.boxes?.() ?? []);
+      // Flood water: the car ploughs through it, slow, whatever the pedal says.
+      const wade = wadeFactor(car.x, car.z);
+      if (wade < 1) {
+        const most = driving.stats.top * wade * 0.6;
+        if (Math.abs(car.speed) > most) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed) - most, 16 * dt);
+      }
       // Benin roads: a wheel into a pothole jolts the car, costs it speed and bangs. Slowly
       // through it is a bump; fast through a deep one hurts.
       if (driving.holes) {
@@ -388,7 +395,7 @@ export function LocalPlayer({
       const length = Math.hypot(input.x, input.z);
       if (length > DEAD_ZONE && dt > 0) {
         // A tout holding on to you slows you down until you shake them off.
-        const pace = (input.sprint ? SPRINT_SPEED : WALK_SPEED) * playerDrag.factor;
+        const pace = (input.sprint ? SPRINT_SPEED : WALK_SPEED) * playerDrag.factor * wadeFactor(playerFocus.x, playerFocus.z);
         const fromX = body.position.x;
         const fromZ = body.position.z;
         // The stick is read as the screen shows it, so it is turned by the camera's angle:

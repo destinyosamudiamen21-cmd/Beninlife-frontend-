@@ -8,9 +8,10 @@ import { playerFocus } from "./focus";
 import { hexToLinear } from "./tint";
 
 /**
- * The police checkpoints on the main roads. The same places as CHECKPOINTS in
- * backend/app/services/police_service.py: the server checks a player is really at one
- * before it lets the officers stop them. `angle` is the way the road runs there.
+ * The first police checkpoints, placed by hand. The server sends the full list with the
+ * patrols (there are many more now: backend/app/services/patrol_routes.py); these are only
+ * drawn if that list has not arrived. The server checks a player is really at one before it
+ * lets the officers stop them. `angle` is the way the road runs there.
  */
 export const CHECKPOINTS: { id: string; district: string; x: number; z: number; angle: number }[] = [
   { id: "cp_ugbowo", district: "uniben", x: -117.3, z: 77.3, angle: 2.96 },
@@ -62,6 +63,8 @@ function buildCheckpoint(): MeshData {
 
 type Props = {
   district: string;
+  /** Every checkpoint in the city, from the server. Empty until it arrives. */
+  points?: { id: string; district: string; x: number; z: number; angle: number }[];
   /** The player walked up to a checkpoint. Called once each time they come close. */
   onReach: (checkpoint: string) => void;
   /** True while something else is going on (a ride, a panel): nobody is called over then. */
@@ -69,8 +72,11 @@ type Props = {
 };
 
 /** The checkpoints in this district: the van, the tyres, the officers, and the stop itself. */
-export function PoliceCheckpoints({ district, onReach, paused }: Props) {
-  const here = useMemo(() => CHECKPOINTS.filter((point) => point.district === district), [district]);
+export function PoliceCheckpoints({ district, points, onReach, paused }: Props) {
+  const here = useMemo(
+    () => (points && points.length > 0 ? points : CHECKPOINTS).filter((point) => point.district === district),
+    [district, points],
+  );
   const shape = useMemo(() => toGeometry(buildCheckpoint()), []);
   useEffect(() => () => shape.dispose(), [shape]);
   const armed = useRef(new Map<string, boolean>());

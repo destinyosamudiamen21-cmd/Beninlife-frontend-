@@ -7,6 +7,7 @@ import { PLAYER_RADIUS, type Collider, type Point } from "./collision";
 import type { DistrictData } from "./districtData";
 import { CAR_TINTS, PERSON, VEHICLE_SIZES } from "./streetProps";
 import { hexToLinear } from "./tint";
+import { onBadRoad, wadeFactor, weatherNow } from "./weather";
 
 // ---- how busy the street is: change these to tune it ---------------------------
 
@@ -26,11 +27,13 @@ const ACCELERATE = 2.4;
 const BRAKE = 9;
 
 // Colours people wear.
-const SKIN = ["#a9714b", "#8d5a3b", "#774a2f", "#613a25", "#4b2c1c", "#35201a"].map(hexToLinear);
-const CLOTH = [
+const SKIN_HEX = ["#a9714b", "#8d5a3b", "#774a2f", "#613a25", "#4b2c1c", "#35201a"];
+const CLOTH_HEX = [
   "#2f6fd6", "#2f9e54", "#d64545", "#e88a2b", "#6a4fe0", "#d63f8c", "#2a9d8f", "#3a3d42",
   "#ede6d6", "#c79a2b", "#f2c200", "#8a2f3a", "#1f2a36", "#f1efe9",
-].map(hexToLinear);
+];
+const SKIN = SKIN_HEX.map(hexToLinear);
+const CLOTH = CLOTH_HEX.map(hexToLinear);
 const LOADS = ["#d6281f", "#e88a2b", "#f2c200", "#3f8a3a", "#f1efe9", "#7a5a3c", "#aab4ba"].map(hexToLinear);
 
 // ---- shared with MarketPeople --------------------------------------------------
@@ -154,7 +157,186 @@ export type Walker = {
   size: number;
   /** Carrying a basin on their head. */
   loaded: boolean;
+  /** What is on their mind: see `think`. */
+  mind: Mind;
+  /** Taken out of the crowd for now (squared up to the player, drawn in full elsewhere). */
+  held: boolean;
 };
+
+// ---- minds ---------------------------------------------------------------------------
+//
+// Nobody in the crowd is just walking a line. Each person has a nature, and every half
+// second or so they look round and decide what to do about what is going on near them: a
+// fight draws a ring of people who want to see (and sends the nervous ones the other way),
+// a car alarm or a siren makes heads turn, rain sends people hurrying or under the stall
+// awnings, two people who meet may stop and gist, and a flashy car slowing down gets
+// stared at. Then they go back to wherever they were going.
+
+/** What sort of person: it decides what they do when something happens. */
+export const TRAIT = { calm: 0, nosy: 1, nervous: 2, busy: 3 } as const;
+/** What they are doing right now, besides walking. */
+export const MODE = { walk: 0, watch: 1, flee: 2, shelter: 3, chat: 4, gawk: 5 } as const;
+
+export type Mind = {
+  trait: number;
+  mode: number;
+  /** When this stops (the street's own clock, seconds). */
+  until: number;
+  /** Where they are going or looking. */
+  tx: number;
+  tz: number;
+  /** Seconds to the next look round. */
+  think: number;
+  /** How much faster than usual they walk right now. */
+  hurry: number;
+};
+
+/** Something happening on the street that people react to. `until` is on the street's clock. */
+export type StreetEvent = { kind: "fight" | "alarm" | "siren" | "show"; x: number; z: number; until: number };
+
+/** Something is happening at (x, z) for `seconds`: everyone near takes notice. */
+export function raiseEvent(life: StreetLife, kind: StreetEvent["kind"], x: number, z: number, seconds: number): void {
+  // One of each kind in one place: a fight that goes on is the same fight, kept going.
+  for (const known of life.events) {
+    if (known.kind === kind && Math.hypot(known.x - x, known.z - z) < 6) {
+      known.x = x;
+      known.z = z;
+      known.until = Math.max(known.until, life.time + seconds);
+      return;
+    }
+  }
+  life.events.push({ kind, x, z, until: life.time + seconds });
+}
+
+const NOTICE = { fight: 26, alarm: 20, siren: 18, show: 13 };
+
+function newMind(random: () => number): Mind {
+  const roll = random();
+  const trait = roll < 0.42 ? TRAIT.calm : roll < 0.7 ? TRAIT.nosy : roll < 0.86 ? TRAIT.nervous : TRAIT.busy;
+  return { trait, mode: MODE.walk, until: 0, tx: 0, tz: 0, think: random() * 0.6, hurry: 1 };
+}
+
+/** One look round: decide what to do about what is going on. */
+function think(life: StreetLife, walker: Walker, index: number): void {
+  const { random } = life;
+  const mind = walker.mind;
+  const now = life.time;
+  if (mind.mode !== MODE.walk && now >= mind.until) mind.mode = MODE.walk;
+
+  // The nearest thing worth noticing, the most dramatic first.
+  let event: StreetEvent | null = null, gap = Infinity;
+  for (const known of life.events) {
+    if (known.until <= now) continue;
+    const d = Math.hypot(known.x - walker.x, known.z - walker.z);
+    if (d > NOTICE[known.kind]) continue;
+    const rank = (known.kind === "fight" ? 0 : known.kind === "alarm" ? 1 : known.kind === "siren" ? 2 : 3) * 100 + d;
+    if (rank < gap) {
+      gap = rank;
+      event = known;
+    }
+  }
+  if (event) {
+    const d = Math.hypot(event.x - walker.x, event.z - walker.z);
+    const away = Math.atan2(walker.x - event.x, walker.z - event.z);
+    if (event.kind === "fight") {
+      if (mind.trait === TRAIT.nervous || (mind.trait === TRAIT.busy && random() < 0.5)) {
+        if (mind.mode !== MODE.flee) setFlee(life, walker, event, 4 + random() * 3);
+      } else if (mind.mode !== MODE.watch) {
+        // Into the ring, on the side they came from, close enough to see and not to be hit.
+        const angle = away + (random() - 0.5) * 0.9;
+        const radius = 3.2 + random() * 2.6;
+        mind.mode = MODE.watch;
+        mind.tx = event.x + Math.sin(angle) * radius;
+        mind.tz = event.z + Math.cos(angle) * radius;
+        mind.until = event.until + random() * 2;
+      }
+      return;
+    }
+    if (event.kind === "alarm") {
+      if (mind.trait === TRAIT.nervous && d < 10) setFlee(life, walker, event, 2.5 + random() * 2);
+      else if (mind.mode === MODE.walk) look(mind, event, now + 1.5 + random() * 2);
+      return;
+    }
+    if (event.kind === "siren") {
+      if (mind.mode === MODE.walk) look(mind, event, now + 1.2 + random() * 1.5);
+      return;
+    }
+    if (event.kind === "show" && mind.mode === MODE.walk && (mind.trait === TRAIT.nosy || random() < 0.3)) {
+      look(mind, event, now + 2 + random() * 2.5);
+      return;
+    }
+  }
+
+  // Rain: hurry, or get under an awning until it eases off.
+  const rain = weatherNow.rain;
+  mind.hurry = rain > 0.25 && mind.mode === MODE.walk ? 1 + rain * 0.7 : 1;
+  if (mind.mode === MODE.shelter && rain < 0.15) mind.mode = MODE.walk;
+  if (rain > 0.35 && mind.mode === MODE.walk && life.walks[walker.walk].busy && random() < 0.08) {
+    mind.mode = MODE.shelter;
+    mind.until = now + 20 + random() * 40;
+    walker.sideGoal = walker.side >= 0 ? life.walks[walker.walk].half : -life.walks[walker.walk].half;
+    return;
+  }
+
+  // Meeting somebody: now and then two people stop and gist.
+  if (mind.mode === MODE.walk && rain < 0.2 && mind.trait !== TRAIT.busy && random() < 0.025) {
+    for (let k = 0; k < 6; k++) {
+      const other = life.walkers[Math.floor(random() * life.walkers.length) % life.walkers.length];
+      if (other === walker || !other.active || other.held || other.mind.mode !== MODE.walk) continue;
+      if (Math.hypot(other.x - walker.x, other.z - walker.z) > 2.2) continue;
+      const until = now + 4 + random() * 6;
+      Object.assign(mind, { mode: MODE.chat, until, tx: other.x, tz: other.z });
+      Object.assign(other.mind, { mode: MODE.chat, until, tx: walker.x, tz: walker.z });
+      return;
+    }
+  }
+  void index;
+}
+
+function look(mind: Mind, event: StreetEvent, until: number): void {
+  mind.mode = MODE.gawk;
+  mind.tx = event.x;
+  mind.tz = event.z;
+  mind.until = until;
+}
+
+function setFlee(life: StreetLife, walker: Walker, event: StreetEvent, seconds: number): void {
+  const walk = life.walks[walker.walk];
+  along(walk, Math.min(walk.length, walker.at + 1), spot);
+  // Along the path, whichever way leads away.
+  const ahead = (walker.x - event.x) * spot.ux + (walker.z - event.z) * spot.uz;
+  walker.heading = ahead >= 0 ? 1 : -1;
+  walker.mind.mode = MODE.flee;
+  walker.mind.until = life.time + seconds;
+  walker.browsing = 0;
+}
+
+/** Somebody in the crowd takes off away from (x, z): let go if they were held, running along their path. */
+export function sendFleeing(life: StreetLife, index: number, x: number, z: number, seconds = 6): void {
+  const walker = life.walkers[index];
+  if (!walker) return;
+  walker.held = false;
+  setFlee(life, walker, { kind: "fight", x, z, until: life.time + seconds }, seconds);
+}
+
+/** The look of somebody in the crowd, as the full character draws them: picked out to fight. */
+export function walkerLook(life: StreetLife, index: number): { body: "man" | "woman"; skin_tone: string; top_color: string; bottom_color: string } {
+  return life.looks[index] ?? { body: "man", skin_tone: SKIN_HEX[2], top_color: CLOTH_HEX[0], bottom_color: CLOTH_HEX[7] };
+}
+
+/** The person in the crowd nearest (x, z), within `reach` metres, or -1. */
+export function nearestWalker(life: StreetLife, x: number, z: number, reach: number): number {
+  let best = -1, bestGap = reach;
+  life.walkers.forEach((walker, index) => {
+    if (!walker.active || walker.held) return;
+    const gap = Math.hypot(walker.x - x, walker.z - z);
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = index;
+    }
+  });
+  return best;
+}
 
 type Lane = Line & { next: Join[]; twin: number };
 
@@ -193,6 +375,10 @@ export type StreetLife = {
   joins: Sample[];
   random: () => number;
   time: number;
+  /** What is going on that people notice. */
+  events: StreetEvent[];
+  /** How each walker is dressed, for drawing one of them in full. Filled in by peopleColours. */
+  looks: { body: "man" | "woman"; skin_tone: string; top_color: string; bottom_color: string }[];
 };
 
 export type StreetLifeOptions = { walkers?: number; vehicles?: number; seed?: number };
@@ -201,6 +387,9 @@ export type StreetLifeOptions = { walkers?: number; vehicles?: number; seed?: nu
 
 const SAMPLE_CELL = 12;
 const cellKey = (x: number, z: number, size: number) => (Math.floor(x / size) + 4096) * 8192 + (Math.floor(z / size) + 4096);
+
+/** The street being shown now: whoever needs to look into it (a test, or a debugging session) can. */
+export const currentStreet: { life: StreetLife | null } = { life: null };
 
 export function createStreetLife(district: DistrictData, options: StreetLifeOptions = {}): StreetLife {
   const random = randomStream(options.seed ?? 20261006);
@@ -322,7 +511,7 @@ export function createStreetLife(district: DistrictData, options: StreetLifeOpti
   });
 
   const life: StreetLife = {
-    walkers: [], vehicles: [], walks, lanes, samples, sampleCells, busyCells, joins, random, time: 0,
+    walkers: [], vehicles: [], walks, lanes, samples, sampleCells, busyCells, joins, random, time: 0, events: [], looks: [],
   };
 
   const walkerCount = walks.length > 0 ? options.walkers ?? WALKERS : 0;
@@ -331,10 +520,11 @@ export function createStreetLife(district: DistrictData, options: StreetLifeOpti
       active: false, walk: 0, at: 0, heading: 1, side: 0, sideGoal: 0,
       pace: 0.8 + random() * 0.7, browsing: 0, retry: random() * 0.5,
       x: 0, z: -9999, rot: 0, speed: 0, stride: random() * 6.283,
-      size: 0.9 + random() * 0.16, loaded: random() < 0.26,
+      size: 0.9 + random() * 0.16, loaded: random() < 0.26, mind: newMind(random), held: false,
     });
   }
 
+  currentStreet.life = life;
   const vehicleCount = lanes.length > 0 ? options.vehicles ?? VEHICLES : 0;
   for (let i = 0; i < vehicleCount; i++) {
     const kind = MIX[Math.floor(random() * MIX.length) % MIX.length];
@@ -377,12 +567,18 @@ function placeWalker(life: StreetLife, walker: Walker, px: number, pz: number, n
     walker.z = spot.z + spot.ux * walker.side;
     walker.rot = Math.atan2(spot.ux * walker.heading, spot.uz * walker.heading);
     walker.speed = 0;
+    walker.mind.mode = MODE.walk;
+    walker.mind.hurry = 1;
     return;
   }
 }
 
-function stepWalker(life: StreetLife, walker: Walker, dt: number, px: number, pz: number): void {
+function stepWalker(life: StreetLife, walker: Walker, dt: number, px: number, pz: number, index = 0): void {
   const { random } = life;
+  if (walker.held) {
+    walker.speed = 0;
+    return;
+  }
   if (!walker.active) {
     walker.retry -= dt;
     if (walker.retry <= 0) {
@@ -398,12 +594,50 @@ function stepWalker(life: StreetLife, walker: Walker, dt: number, px: number, pz
     return;
   }
 
+  const mind = walker.mind;
+  mind.think -= dt;
+  if (mind.think <= 0) {
+    mind.think = 0.35 + random() * 0.5;
+    think(life, walker, index);
+  }
+  if (mind.mode === MODE.watch || mind.mode === MODE.gawk || mind.mode === MODE.chat) {
+    // Off the path to watch, or standing still to look or talk: face what has their attention.
+    let gx = walker.x, gz = walker.z;
+    if (mind.mode === MODE.watch) {
+      gx = mind.tx;
+      gz = mind.tz;
+    }
+    const dx = gx - walker.x, dz = gz - walker.z;
+    const gap = Math.hypot(dx, dz);
+    const step = Math.min(gap, walker.pace * 2.2 * dt);
+    if (gap > 0.05) {
+      walker.x += (dx / gap) * step;
+      walker.z += (dz / gap) * step;
+    }
+    let facing = Math.atan2(dx, dz);
+    if (gap < 0.3 || mind.mode !== MODE.watch) {
+      // There: turn to the fight (for a watcher, the middle of the ring is where they came from, plus the radius).
+      const event = life.events.find((known) => known.until > life.time && Math.hypot(known.x - walker.x, known.z - walker.z) < 9);
+      const fx = mind.mode === MODE.watch && event ? event.x : mind.tx, fz = mind.mode === MODE.watch && event ? event.z : mind.tz;
+      facing = Math.atan2(fx - walker.x, fz - walker.z);
+    }
+    walker.speed = dt > 0 ? step / dt : 0;
+    walker.rot = turnTowards(walker.rot, facing, 6 * dt);
+    // Bouncing on their toes to see over the others.
+    walker.stride += (walker.speed > 0.1 ? walker.speed * 3.4 : mind.mode === MODE.watch ? 2.2 : 0) * dt / walker.size;
+    return;
+  }
+
   let walk = life.walks[walker.walk];
   let facing = walker.rot;
+  const hurry = mind.mode === MODE.flee ? 2.6 : mind.hurry;
+  if (mind.mode === MODE.shelter) {
+    walker.browsing = Math.max(walker.browsing, 0.5);
+  }
   if (walker.browsing > 0) {
     walker.browsing -= dt;
   } else {
-    walker.at += walker.heading * walker.pace * dt;
+    walker.at += walker.heading * walker.pace * hurry * dt;
     if (walker.at <= 0 || walker.at >= walk.length) {
       // The end of this path: step onto one that passes here, or turn back.
       const links = walker.at <= 0 ? walk.startLinks : walk.endLinks;
@@ -443,7 +677,7 @@ function stepWalker(life: StreetLife, walker: Walker, dt: number, px: number, pz
 
   const dx = goalX - walker.x, dz = goalZ - walker.z;
   const gap = Math.hypot(dx, dz);
-  const step = Math.min(gap, walker.pace * 1.8 * dt);
+  const step = Math.min(gap, walker.pace * 1.8 * Math.max(1, hurry) * wadeFactor(walker.x, walker.z) * dt);
   if (gap > 1e-4) {
     walker.x += (dx / gap) * step;
     walker.z += (dz / gap) * step;
@@ -500,6 +734,14 @@ function stepVehicle(life: StreetLife, vehicle: Vehicle, dt: number, px: number,
   const lane = lanes[vehicle.lane];
   const busy = life.busyCells.has(cellKey(vehicle.x, vehicle.z, BUSY_CELL));
   let limit = vehicle.cruise * (busy ? 0.5 : 1);
+  // Water on the road, the broken road past Isihor, and rain: everything crawls, and a
+  // queue builds up behind whoever is crawling.
+  limit *= wadeFactor(vehicle.x, vehicle.z) * (1 - 0.25 * weatherNow.rain);
+  if (onBadRoad(weatherNow.district, vehicle.x, vehicle.z)) limit *= 0.4;
+  // A siren coming: pull over a little and slow right down.
+  for (const event of life.events) {
+    if (event.kind === "siren" && event.until > life.time && Math.hypot(event.x - vehicle.x, event.z - vehicle.z) < 30) limit *= 0.45;
+  }
 
   // Whatever is in front in this lane, or just into the next one.
   let room = Infinity, leaderSpeed = 0;
@@ -576,9 +818,10 @@ function stepVehicle(life: StreetLife, vehicle: Vehicle, dt: number, px: number,
 
 /** Move the whole street on by `dt` seconds, given where the player is. */
 export function stepStreetLife(life: StreetLife, dt: number, px: number, pz: number): void {
-  for (const walker of life.walkers) stepWalker(life, walker, dt, px, pz);
+  life.walkers.forEach((walker, index) => stepWalker(life, walker, dt, px, pz, index));
   for (const vehicle of life.vehicles) stepVehicle(life, vehicle, dt, px, pz);
   life.time += dt;
+  if (life.events.length > 0) life.events = life.events.filter((event) => event.until > life.time);
 }
 
 // ---- the player and the traffic --------------------------------------------
@@ -705,7 +948,7 @@ export function inClearView(clear: ClearView, x: number, z: number): boolean {
 export function writeWalkers(life: StreetLife, out: PeopleSlots, clear?: ClearView): void {
   life.walkers.forEach((walker, slot) => {
     const inTheWay = clear !== undefined && inClearView(clear, walker.x, walker.z);
-    if (!walker.active || inTheWay) {
+    if (!walker.active || inTheWay || walker.held) {
       noPerson(out, slot);
       hide(out.loads, slot);
       return;
@@ -785,10 +1028,14 @@ export function peopleColours(life: StreetLife, standing: Dressed[]): PeopleColo
   const random = randomStream(77);
   const pick = <T,>(list: T[]) => list[Math.floor(random() * list.length) % list.length];
   for (let slot = 0; slot < walkers; slot++) {
-    const top = pick(CLOTH);
+    const top = Math.floor(random() * CLOTH.length) % CLOTH.length;
+    const skin = Math.floor(random() * SKIN.length) % SKIN.length;
     // One in three wears a gown or a wrapper: the same cloth from shoulder to ankle.
-    dress(slot, pick(SKIN), top, random() < 0.33 ? top : pick(CLOTH), random() < 0.3);
+    const gown = random() < 0.33;
+    const bottom = gown ? top : Math.floor(random() * CLOTH.length) % CLOTH.length;
+    dress(slot, SKIN[skin], CLOTH[top], CLOTH[bottom], random() < 0.3);
     put(colours.loads, slot, pick(LOADS));
+    life.looks[slot] = { body: gown ? "woman" : "man", skin_tone: SKIN_HEX[skin], top_color: CLOTH_HEX[top], bottom_color: CLOTH_HEX[bottom] };
   }
   standing.forEach((one, index) => {
     dress(walkers + index, hexToLinear(one.look.skin_tone), hexToLinear(one.look.top_color), hexToLinear(one.look.bottom_color), false);

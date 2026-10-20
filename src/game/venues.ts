@@ -49,7 +49,8 @@ export type Sign = { text: string; x: number; y: number; z: number; size: number
 export type Lighting = "bright" | "warm" | "club" | "dark" | "night" | "day" | "aqua" | "cinema" | "showroom" | "dining";
 
 export type VenueKind =
-  | "club" | "lounge" | "museum" | "haunted" | "mall" | "hospital" | "police" | "golf" | "cinema" | "food" | "shop" | "aquarium" | "flyover" | "zoo" | "showroom";
+  | "club" | "lounge" | "museum" | "haunted" | "mall" | "hospital" | "police" | "golf" | "cinema" | "food" | "shop" | "aquarium" | "flyover" | "zoo" | "showroom"
+  | "hotel";
 
 export type VenueLayout = {
   id: string;
@@ -1154,6 +1155,91 @@ function dealer(): VenueLayout {
   });
 }
 
+// ---- the Ivory Palm Hotel ---------------------------------------------------------------------------------
+// On Sapele Link in GRA. An ivory marble lobby with the front desk on the left under a gold
+// backdrop, the lobby bar on the right, and through the planters at the back the restaurant
+// and the indoor pool under a skylight.
+
+function ivoryPalm(): VenueLayout {
+  const width = 30, depth = 24;
+  const gold = "#c9a24e", ivory = "#efe9dc", walnut = "#4e3524", cloth = "#f7f5ef", teal = "#2a6f73", cream = "#e8dfcc";
+  const boxes: Box[] = [
+    // The front desk: walnut with a gold top, the backdrop behind with the hotel's name.
+    solid(6, 15.2, 3.2, 0.5, 1.1, walnut),
+    glow(6, 15.2, 3.25, 0.55, 1.1, 1.15, gold),
+    deco(6, 13.2, 4.2, 0.12, 0, 3.6, "#1f1a16"),
+    glow(6, 13.34, 4.0, 0.02, 3.3, 3.36, gold),
+    glow(6, 13.34, 4.0, 0.02, 0.25, 0.31, gold),
+    // The lobby: a round sofa round a planter under the chandelier, a rug of gold and ivory.
+    deco(15, 18, 3.4, 2.6, 0.004, 0.012, "#d8c7a6"),
+    deco(15, 18, 2.9, 2.1, 0.012, 0.018, cream),
+    solid(15, 18, 0.9, 0.9, 0.5, "#efe3cf"), ...plant(15, 18),
+    ...sofa(12.6, 18, 0.6, "#efe3cf", 1).map((box) => ({ ...box, hx: 0.45, hz: 1.2 })),
+    ...sofa(17.4, 18, 0.6, "#efe3cf", 1).map((box) => ({ ...box, hx: 0.45, hz: 1.2 })),
+    ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+      const a = (i / 8) * Math.PI * 2;
+      return glow(15 + Math.cos(a) * 1.1, 18 + Math.sin(a) * 1.1, 0.06, 0.06, 4.1, 4.5, "#fff1c9");
+    }),
+    deco(15, 18, 1.3, 1.3, 4.8, 4.9, gold),
+    deco(15, 18, 0.02, 0.02, 4.9, 6.0, gold),
+    // The lobby bar: black marble with a gold rail, stools, a wall of lit bottles.
+    solid(25, 17.5, 0.5, 3.0, 1.1, "#1d1d22"),
+    glow(25, 17.5, 0.52, 3.02, 1.1, 1.14, gold),
+    ...[15.5, 16.8, 18.1, 19.4].map((z) => deco(23.9, z, 0.24, 0.24, 0, 0.75, gold)),
+    deco(29.7, 17.5, 0.15, 3.2, 0, 3.4, walnut),
+    ...[1.3, 1.9, 2.5].flatMap((y, row) => [15, 16, 17, 18, 19, 20].map((z, i) =>
+      glow(29.55, z, 0.05, 0.08, y, y + 0.32, ["#e9b949", "#7fd1b9", "#ff8a65", "#f48fb1", "#fff59d", "#c5e1a5"][(i + row * 2) % 6]))),
+    // Planters across the room between the lobby and the back, a way through in the middle.
+    ...[2.5, 6.5, 10.5, 19.5, 23.5, 27.5].flatMap((x) => [solid(x, 11.6, 1.6, 0.4, 0.7, ivory), deco(x, 11.6, 1.5, 0.3, 0.7, 1.3, "#3f7d3a")]),
+    // The restaurant, back left: white cloths, gold chairs, pendants over each table.
+    ...[[3.5, 3.2], [7.5, 3.2], [11, 3.2], [3.5, 7.4], [7.5, 7.4], [11, 7.4]].flatMap(([x, z]) => [
+      ...tableSet(x, z, cloth, gold),
+      deco(x, z, 0.015, 0.015, 3.0, 4.6, "#2a2a2a"),
+      glow(x, z, 0.18, 0.18, 2.85, 3.0, "#ffe2a8"),
+    ]),
+    deco(7, 0.2, 6.5, 0.1, 0, 3.6, walnut),
+    // The pool, back right: a white rim, the water lit from inside, loungers along the edge.
+    solid(22.5, 5.2, 6.4, 0.25, 0.25, ivory), solid(22.5, 0.95, 6.4, 0.25, 0.25, ivory),
+    solid(16.35, 3.1, 0.25, 2.4, 0.25, ivory), solid(28.65, 3.1, 0.25, 2.4, 0.25, ivory),
+    glow(22.5, 3.08, 5.9, 1.9, 0.02, 0.08, "#38c6f0"),
+    deco(22.5, 3.08, 5.9, 0.02, 0.08, 0.09, "#bff1ff"),
+    ...[17.5, 20.5, 23.5, 26.5].flatMap((x) => [solid(x, 7.6, 0.4, 1.0, 0.35, "#f6f4ee"), deco(x, 6.9, 0.4, 0.28, 0.35, 0.75, "#f6f4ee")]),
+    ...[19, 25].flatMap((x) => [deco(x, 8.9, 0.04, 0.04, 0, 2.3, "#3a3a3a"), deco(x, 8.9, 1.1, 1.1, 2.3, 2.4, teal)]),
+    ...plant(15.3, 9.6), ...plant(29.2, 9.6), ...plant(29.2, 0.8),
+    // A skylight over the pool, and a line of gold round the top of the walls.
+    glow(22.5, 4.2, 6.5, 3.6, 5.95, 6.0, "#d9f2ff"),
+    glow(width / 2, 0.06, width / 2 - 0.3, 0.02, 5.9, 5.95, gold),
+    ...plant(1.2, 22.8), ...plant(28.8, 22.8),
+  ];
+  return room({
+    id: "ivorypalm", name: "Ivory Palm Hotel", kind: "hotel", width, depth, wallHeight: 6,
+    floor: "#ece8df", floorAlt: "#e2ddd1", wall: ivory, trim: gold, sky: "#14110d", lighting: "dining",
+    boxes,
+    things: [
+      { spot: "hotel_desk", name: "Front desk", verb: "Ask at the", x: 6, z: 15.2, hx: 3.2, hz: 0.5, reach: 1.4, stand: { x: 6, z: 16.4, rot: Math.PI } },
+      { spot: "hotel_bar", name: "Lobby bar", verb: "", x: 25, z: 17.5, hx: 0.5, hz: 3.0, reach: 1.4, stand: { x: 23.9, z: 17.5, rot: Math.PI / 2 } },
+      { spot: "hotel_restaurant", name: "Restaurant", verb: "Sit in the", x: 7.2, z: 5.3, hx: 5.0, hz: 3.4, reach: 0.9, stand: "here" },
+      { spot: "hotel_pool", name: "Pool", verb: "Go to the", x: 22.5, z: 4.5, hx: 6.4, hz: 4.2, reach: 1.0, stand: "here" },
+    ],
+    people: [
+      { x: 5, z: 14.4, rot: 0, look: STAFF(2, "#1d1d1f", "woman"), label: "Receptionist" },
+      { x: 7.4, z: 14.4, rot: 0, look: STAFF(4, "#1d1d1f") },
+      { x: 26.2, z: 17.5, rot: -Math.PI / 2, look: STAFF(1, "#efeee8"), label: "Bartender" },
+      { x: 4.35, z: 3.2, rot: -Math.PI / 2, look: PARTY[1], move: "sit" },
+      { x: 7.5, z: 8.25, rot: Math.PI, look: PARTY[4], move: "sit" },
+      { x: 20.5, z: 7.6, rot: Math.PI, look: PARTY[2], move: "sit" },
+      { x: 9.5, z: 9.6, rot: 2.4, look: STAFF(3, "#efeee8", "woman"), label: "Waiter" },
+      { x: 3.2, z: 21.5, rot: 0.6, look: STAFF(5, "#2b3a55"), label: "Concierge" },
+    ],
+    signs: [
+      { text: "IVORY PALM", x: 6, y: 2.6, z: 13.34, size: 0.6, colour: gold },
+      { text: "Reception", x: 6, y: 1.75, z: 13.34, size: 0.26, colour: "#efe9dc" },
+      { text: "The Palm Room", x: 7, y: 3.0, z: 0.32, size: 0.45, colour: gold },
+      { text: "Pool · open 7 am to 9 pm", x: 22.5, y: 3.0, z: 0.12, size: 0.3, colour: "#1d1d1f" },
+    ],
+  });
+}
+
 export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
   [
     museum(), police(), supermarket("hallmark", "Supermarket", "hallmark", 24, 18, "#c8432b"),
@@ -1163,7 +1249,7 @@ export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
     aquarium(),
     club("patricia", "Rooftop Club", 26, 20), club("patio", "Afrobeats Club", 26, 20), club("space", "Neon Club", 26, 20),
     club("darkalley", "Underground Club", 24, 18),
-    haunted(), golf(), flyover(), zoo(), dealer(), mimeals(),
+    haunted(), golf(), flyover(), zoo(), dealer(), mimeals(), ivoryPalm(),
   ].map((layout) => [layout.id, layout]),
 );
 

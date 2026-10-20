@@ -42,8 +42,15 @@ export type WorldEvent =
   | { type: "ride"; driver?: string; x?: number; z?: number; passenger?: string; kind?: string }
   /** A police patrol stopped this player as they moved (`kind`: "car", "foot" or "caught"): fetch the stop to see it. */
   | { type: "police"; stop: string; kind: string }
-  /** A police chase: "on" (for `seconds`), "lost" (they got away) or "caught". */
-  | { type: "chase"; state: "on" | "lost" | "caught"; seconds?: number }
+  /** A police chase: "on" (for `seconds`, on `foot` or in a car), "lost" (they got away) or "caught". */
+  | { type: "chase"; state: "on" | "lost" | "caught"; seconds?: number; foot?: boolean; stars?: number }
+  /** How wanted the player is now (0 to 5 stars), and why it changed. */
+  | { type: "wanted"; stars: number; why: string }
+  /** The stolen car they left standing was towed away. */
+  | { type: "hot_car"; state: "towed" }
+  /** Something happened in the club the player is in: bottles, a shout-out, money in the air (ClubLive.tsx). */
+  | { type: "club"; club: string; kind: string; name: string; id?: string; text?: string; amount?: number; song?: string;
+      target?: string; target_id?: string; floor?: number; ok?: boolean }
   /** The police took the car to their yard: the player is on foot. */
   | { type: "car_taken" }
   /** A passenger: the car they are in drove into another district. */

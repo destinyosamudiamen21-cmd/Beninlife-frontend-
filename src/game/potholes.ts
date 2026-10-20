@@ -5,8 +5,10 @@
 import { MeshBuilder, type MeshData } from "./districtGeometry";
 import type { DistrictData } from "./districtData";
 import { hexToLinear } from "./tint";
+import { BAD_ROADS } from "./weather";
 
-export type Pothole = { x: number; z: number; r: number; deep: boolean };
+/** `muddy`: brown water standing in it (the broken road past Isihor), not just a hole. */
+export type Pothole = { x: number; z: number; r: number; deep: boolean; muddy?: boolean };
 
 const ROADS = new Set(["trunk", "primary", "secondary", "tertiary", "residential", "unclassified", "service"]);
 const CELL = 12;
@@ -61,6 +63,41 @@ export function potholesFor(district: DistrictData): Potholes {
       carry = at - length;
     }
   }
+  // The road past Isihor towards Oluku: hardly any tarmac left. Holes across the whole
+  // width one after another, most of them full of brown water, and wide pools between.
+  // Only on the tarmac itself: the strip of grass between the two carriageways stays grass.
+  const mainRoads = district.roads.filter((road) => road.t === "trunk" || road.t === "primary");
+  const onTarmac = (x: number, z: number) => mainRoads.some((road) => {
+    for (let i = 0; i + 3 < road.p.length; i += 2) {
+      const ax = road.p[i], az = road.p[i + 1], dx = road.p[i + 2] - ax, dz = road.p[i + 3] - az;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)));
+      if (Math.hypot(x - ax - dx * t, z - az - dz * t) < road.w / 2 - 0.5) return true;
+    }
+    return false;
+  });
+  for (const bad of BAD_ROADS[district.id] ?? []) {
+    const p = bad.p;
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const ax = p[i], az = p[i + 1], bx = p[i + 2], bz = p[i + 3];
+      const length = Math.hypot(bx - ax, bz - az);
+      const ux = (bx - ax) / length, uz = (bz - az) / length;
+      for (let at = random() * 3; at < length; at += 2 + random() * 3.5) {
+        const across = 2 + Math.floor(random() * 3);
+        for (let k = 0; k < across; k++) {
+          const side = (random() - 0.5) * 2 * (bad.half - 1.5);
+          const pool = random() < 0.18;
+          const hx = ax + ux * at - uz * side, hz = az + uz * at + ux * side;
+          if (!onTarmac(hx, hz)) continue;
+          list.push({
+            x: hx, z: hz,
+            r: pool ? 1.8 + random() * 1.8 : 0.6 + random() * 1.0,
+            deep: !pool && random() < 0.7, muddy: true,
+          });
+        }
+      }
+    }
+  }
+
   const grid = new Map<string, Pothole[]>();
   for (const hole of list) {
     const key = `${Math.floor(hole.x / CELL)},${Math.floor(hole.z / CELL)}`;
@@ -90,6 +127,7 @@ export function holeAt(holes: Potholes, x: number, z: number): Pothole | null {
 export function buildPotholes(holes: Potholes): MeshData {
   const b = new MeshBuilder();
   const rim = hexToLinear("#5d5953"), hole = hexToLinear("#2a2724"), water = hexToLinear("#5b6b63");
+  const mudRim = hexToLinear("#7a6a52");
   const up: [number, number, number] = [0, 1, 0];
   const random = seeded("pothole-shapes");
   for (const h of holes.list) {
@@ -102,9 +140,35 @@ export function buildPotholes(holes: Potholes): MeshData {
         b.face([[h.x, y, h.z], [h.x + Math.cos(a) * ra, y, h.z + Math.sin(a) * ra], [h.x + Math.cos(c) * rc, y, h.z + Math.sin(c) * rc]], colour, up);
       }
     };
+    if (h.muddy) {
+      // A lip of dried mud round a hole; the brown water in it is drawn on its own (it shines).
+      ring(1.3, 0.112, mudRim);
+      ring(1.0, 0.116, hole);
+      continue;
+    }
     ring(1.25, 0.112, rim);
     ring(1.0, 0.116, hole);
     if (h.deep) ring(0.6, 0.12, water);
+  }
+  return b.build();
+}
+
+/** The brown water standing in the holes past Isihor: flat, nearly to the brim, drawn shiny. */
+export function buildMuddyWater(holes: Potholes): MeshData {
+  const b = new MeshBuilder();
+  const water = hexToLinear("#4a3d2a");
+  const up: [number, number, number] = [0, 1, 0];
+  const random = seeded("mud-shapes");
+  for (const h of holes.list) {
+    if (!h.muddy) continue;
+    const sides = 10;
+    const radii = Array.from({ length: sides }, () => 0.8 + random() * 0.35);
+    const scale = h.deep ? 0.92 : 0.85;
+    for (let i = 0; i < sides; i++) {
+      const a = (i / sides) * Math.PI * 2, c = ((i + 1) / sides) * Math.PI * 2;
+      const ra = h.r * scale * radii[i], rc = h.r * scale * radii[(i + 1) % sides];
+      b.face([[h.x, 0.121, h.z], [h.x + Math.cos(a) * ra, 0.121, h.z + Math.sin(a) * ra], [h.x + Math.cos(c) * rc, 0.121, h.z + Math.sin(c) * rc]], water, up);
+    }
   }
   return b.build();
 }

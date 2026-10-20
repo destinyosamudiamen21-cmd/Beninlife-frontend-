@@ -18,6 +18,7 @@ import {
 import { Animals } from "./Animals";
 import { Car } from "./Car";
 import { Character } from "./Character";
+import { ClubShow } from "./ClubShow";
 import { HauntExtras } from "./HauntExtras";
 import type { MeshData } from "./districtGeometry";
 import { fightClock, newPose, stepSpeed, danceTurn, strike, type FightPose } from "./fightMoves";
@@ -388,6 +389,21 @@ export function VenueScene({ layout, playersRef, onNear, onSpecial, onScare, car
       <mesh geometry={meshes.glass}>
         <meshLambertMaterial vertexColors transparent opacity={0.22} depthWrite={false} side={DoubleSide} />
       </mesh>
+      {layout.kind === "club" && (
+        <ClubShow
+          width={width}
+          depth={depth}
+          height={layout.wallHeight}
+          bar={(() => {
+            const bar = layout.things.find((thing) => thing.spot.endsWith("_bar"));
+            return bar ? { x: bar.x + 1.2, z: bar.z } : { x: 3, z: depth / 2 };
+          })()}
+          dj={(() => {
+            const dj = layout.things.find((thing) => thing.spot.endsWith("_dj"));
+            return dj ? { x: dj.x, z: dj.z } : { x: width / 2, z: 1.5 };
+          })()}
+        />
+      )}
 
       {floor &&
         Array.from({ length: floor.tiles * floor.tiles }, (_, i) => {

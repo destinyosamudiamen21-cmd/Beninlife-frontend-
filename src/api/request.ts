@@ -13,6 +13,10 @@ export class ApiError extends Error {
 }
 
 const TIMEOUT_MS = 20_000; // a request that has not answered by then is not going to
+/** The server's answer when a spend would pass today's spending limit. */
+export const LIMIT_REACHED = 429;
+/** Sent on the window, with the server's words as `detail`, whenever that happens. */
+export const LIMIT_EVENT = "beninlife:limit";
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -36,6 +40,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
       } catch {
         // No readable explanation: fall through to the general message.
       }
+    }
+    // Today's spending limit: whatever was being bought, the game offers to raise it (Game.tsx listens).
+    if (res.status === LIMIT_REACHED && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(LIMIT_EVENT, { detail: detail }));
     }
     throw new ApiError(res.status, detail || "Something went wrong. Try again.");
   }
