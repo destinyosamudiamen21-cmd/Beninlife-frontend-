@@ -15,6 +15,8 @@ export type Spending = {
   free: number;
   /** A day with a bigger free allowance (the birthday). */
   special_day: boolean;
+  /** No daily limit at all (admins). */
+  unlimited?: boolean;
   tiers: Tier[];
   /** What the next raise takes the limit to. */
   next_allowance: number;

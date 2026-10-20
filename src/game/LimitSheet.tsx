@@ -139,12 +139,13 @@ export function LimitSheet({ playerId, reason, onClose, onRaised }: Props) {
             <div className="limit-bar" aria-hidden="true"><b style={{ width: `${Math.round(used * 100)}%` }} /></div>
             <div className="limit-numbers">
               <span>Spent today {naira(spending.spent)}</span>
-              <span>Limit {naira(spending.allowance)}</span>
+              <span>{spending.unlimited ? "No daily limit" : `Limit ${naira(spending.allowance)}`}</span>
             </div>
-            {spending.special_day && (
+            {spending.unlimited && <div className="limit-done" role="status">You have no daily limit (admin).</div>}
+            {!spending.unlimited && spending.special_day && (
               <div className="limit-party">🎂 Birthday special: everyone can spend {naira(spending.free)} free today.</div>
             )}
-            <ul className="limit-tiers" aria-label="The tiers">
+            {!spending.unlimited && <ul className="limit-tiers" aria-label="The tiers">
               {spending.tiers.map((tier) => (
                 <li key={tier.number}
                   className={tier.bought ? "bought" : !tier.useful ? "past" : spending.can_raise && tier.limit === spending.next_allowance ? "next" : ""}>
@@ -153,8 +154,8 @@ export function LimitSheet({ playerId, reason, onClose, onRaised }: Props) {
                   <i>{tier.bought ? "Yours today" : tier.price}</i>
                 </li>
               ))}
-            </ul>
-            {done ? (
+            </ul>}
+            {spending.unlimited ? null : done ? (
               <div className="limit-done" role="status">Done. Your limit today is now {naira(done.allowance)}.</div>
             ) : !spending.can_raise ? (
               <div className="limit-done" role="status">You have the highest limit today. It starts again at midnight.</div>
