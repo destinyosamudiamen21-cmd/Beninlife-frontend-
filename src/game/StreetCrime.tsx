@@ -434,7 +434,7 @@ export function CrimeHud({ crime, free, chasing, money }: HudProps) {
   return (
     <>
       <style>{`
-        .wanted-stars { position: absolute; z-index: 14; left: 50%; transform: translateX(-50%); top: calc(108px + env(safe-area-inset-top));
+        .wanted-stars { position: absolute; z-index: 14; left: 50%; transform: translateX(-50%); top: calc(134px + env(safe-area-inset-top));
           display: flex; gap: 2px; padding: 4px 8px; border-radius: 10px; background: rgba(12, 12, 16, 0.78); pointer-events: none; }
         .wanted-stars span { font-size: 20px; line-height: 1; color: rgba(255, 255, 255, 0.22); }
         .wanted-stars span.on { color: #ffd23f; text-shadow: 0 0 6px rgba(255, 210, 63, 0.8); }

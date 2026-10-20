@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { claimGoal, type Goal, type Goals } from "../api/goals";
+import { claimMission, type Mission, type Missions } from "../api/missions";
 
 const naira = (amount: number) => `₦${amount.toLocaleString()}`;
 
@@ -14,17 +15,29 @@ function amount(goal: Goal, value: number): string {
   return goal.target >= 1000 ? naira(value) : String(value);
 }
 
+function amountOf(target: number, value: number): string {
+  return target >= 1000 ? naira(value) : String(value);
+}
+
 type Props = {
   playerId: string;
   goals: Goals | null;
   onGoals: (goals: Goals) => void;
+  missions: Missions | null;
+  onMissions: (missions: Missions) => void;
+  /** "Show me": the map, open on a place (a city map place id). */
+  onShow: (place: string) => void;
   onMoney: (money: number) => void;
   onNews: (line: string) => void;
   onClose: () => void;
 };
 
-/** Today's three goals, the week's three, and the streak. Finished goals wait here to be collected. */
-export function GoalsPanel({ playerId, goals, onGoals, onMoney, onNews, onClose }: Props) {
+/**
+ * Missions (the story, chapter by chapter), and today's three goals, the week's three and the
+ * streak. Anything finished waits here to be collected.
+ */
+export function GoalsPanel({ playerId, goals, onGoals, missions, onMissions, onShow, onMoney, onNews, onClose }: Props) {
+  const [tab, setTab] = useState<"missions" | "goals">("missions");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [, tick] = useState(0);
@@ -51,6 +64,49 @@ export function GoalsPanel({ playerId, goals, onGoals, onMoney, onNews, onClose 
       setBusy("");
     }
   };
+
+  const finish = async (mission: Mission) => {
+    if (busy) return;
+    setBusy(mission.id);
+    setError("");
+    try {
+      const now = await claimMission(playerId, mission.id);
+      onMissions(now);
+      onMoney(now.money);
+      if (now.news.length) onNews(now.news.join(" "));
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Could not collect that.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const card = (mission: Mission) => (
+    <li key={mission.id} className={`mission${mission.done ? " mission-ready" : ""}`}>
+      <div className="mission-top">
+        <span className="mission-chapter">{mission.chapter}</span>
+        <b>{naira(mission.reward)}</b>
+      </div>
+      <strong>{mission.title}</strong>
+      <p><em>{mission.giver}:</em> “{mission.story}”</p>
+      <ul className="mission-steps">
+        {mission.steps.map((step) => (
+          <li key={step.text} className={step.done ? "done" : ""}>
+            <span aria-hidden="true">{step.done ? "✓" : "○"}</span>
+            <span className="mission-step">{step.text}{step.target > 1 && !step.done ? ` (${amountOf(step.target, step.progress)} of ${amountOf(step.target, step.target)})` : ""}</span>
+            {step.place && !step.done && (
+              <button type="button" className="mission-show" onClick={() => onShow(step.place)}>Show me</button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {mission.done && (
+        <button type="button" className="mission-take" disabled={busy !== ""} onClick={() => void finish(mission)}>
+          {busy === mission.id ? "…" : `Collect ${naira(mission.reward)}`}
+        </button>
+      )}
+    </li>
+  );
 
   const gone = Math.floor((performance.now() - opened) / 1000);
   const row = (goal: Goal) => {
@@ -104,17 +160,60 @@ export function GoalsPanel({ playerId, goals, onGoals, onMoney, onNews, onClose 
         .goal-take { border: 0; border-radius: 11px; padding: 8px 10px; font-weight: 800; font-size: 13px; background: #e6ddcf; color: #6f655b; white-space: nowrap; }
         .goal-ready .goal-take { background: #1f8f4a; color: #fff; }
         .goal-paid { font-size: 12px; font-weight: 700; color: #1f6b3a; }
+        .goals-tabs { display: flex; gap: 6px; margin: 2px 0 12px; background: #efe8dc; border-radius: 12px; padding: 4px; }
+        .goals-tabs button { flex: 1; border: 0; border-radius: 9px; padding: 9px 8px; font-weight: 800; font-size: 14px; background: transparent; color: #6f655b; }
+        .goals-tabs button.on { background: #fff; color: #1f2a26; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+        .goals-tabs i { font-style: normal; background: #d6452f; color: #fff; border-radius: 999px; padding: 0 7px; margin-left: 6px; font-size: 12px; }
+        .mission-chapters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+        .mission-chapters span { font-size: 11px; font-weight: 700; background: #f1ebe0; color: #5c544b; border-radius: 999px; padding: 3px 9px; }
+        .mission-chapters span.full { background: #dff3e5; color: #1f6b3a; }
+        .mission { list-style: none; padding: 12px; border-radius: 16px; background: #f6f1e8; display: flex; flex-direction: column; gap: 6px; }
+        .mission-ready { background: #fff4cf; box-shadow: inset 0 0 0 2px #f0b72f; }
+        .mission-top { display: flex; justify-content: space-between; align-items: center; }
+        .mission-chapter { font-size: 11px; font-weight: 800; color: #8a6d3b; }
+        .mission-top b { font-size: 13px; color: #1f6b3a; }
+        .mission strong { font-size: 16px; }
+        .mission p { margin: 0; font-size: 13px; color: #5c544b; line-height: 1.4; }
+        .mission p em { font-style: normal; font-weight: 700; color: #3b342d; }
+        .mission-steps { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+        .mission-steps li { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+        .mission-steps li.done { color: #1f6b3a; }
+        .mission-steps li > span:first-child { width: 16px; text-align: center; }
+        .mission-step { flex: 1; min-width: 0; }
+        .mission-show { border: 0; border-radius: 9px; padding: 6px 10px; font-weight: 800; font-size: 12px; background: #1f2a26; color: #fff; white-space: nowrap; }
+        .mission-take { border: 0; border-radius: 12px; padding: 11px; font-weight: 900; font-size: 15px; background: #1f8f4a; color: #fff; margin-top: 4px; }
+        .goals-sheet .sheet-card { max-height: min(86dvh, 760px); overflow-y: auto; }
       `}</style>
       <div className="sheet-card">
         <div className="sheet-top">
           <div>
-            <h2>Goals</h2>
-            <p>Finish them, collect the money. A daily goal every day keeps your streak.</p>
+            <h2>{tab === "missions" ? "Missions" : "Goals"}</h2>
+            <p>{tab === "missions" ? "Follow the story, earn as you go. Finish one and the next comes." : "Finish them, collect the money. A daily goal every day keeps your streak."}</p>
           </div>
           <button type="button" className="ghost" onClick={onClose}>Close</button>
         </div>
-        {!goals && <p>Loading…</p>}
-        {goals && streak && (
+        <div className="goals-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === "missions"} className={tab === "missions" ? "on" : ""} onClick={() => setTab("missions")}>
+            Missions{missions && missions.active.some((m) => m.done) && <i>{missions.active.filter((m) => m.done).length}</i>}
+          </button>
+          <button type="button" role="tab" aria-selected={tab === "goals"} className={tab === "goals" ? "on" : ""} onClick={() => setTab("goals")}>
+            Daily &amp; weekly{goals && [...goals.daily, ...goals.weekly].some((g) => g.done && !g.claimed) && <i>{[...goals.daily, ...goals.weekly].filter((g) => g.done && !g.claimed).length}</i>}
+          </button>
+        </div>
+        {tab === "missions" && !missions && <p>Loading…</p>}
+        {tab === "missions" && missions && (
+          <>
+            <div className="mission-chapters">
+              {missions.chapters.map((chapter) => (
+                <span key={chapter.name} className={chapter.done === chapter.total ? "full" : ""}>{chapter.name} {chapter.done}/{chapter.total}</span>
+              ))}
+            </div>
+            <ul className="goals-list">{[...missions.active].sort((a, b) => Number(b.done) - Number(a.done)).map(card)}</ul>
+            {missions.active.length === 0 && <p>Every mission done. Respect. More are coming.</p>}
+          </>
+        )}
+        {tab === "goals" && !goals && <p>Loading…</p>}
+        {tab === "goals" && goals && streak && (
           <>
             <div className={`goals-streak${streak.days === 0 ? " cold" : ""}`}>
               <span className="flame" aria-hidden="true">🔥</span>

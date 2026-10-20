@@ -12,7 +12,7 @@ export type Spending = {
   /** What the next raise takes the limit to. */
   next_allowance: number;
   next_price_kobo: number;
-  /** "₦49.99" */
+  /** "₦100" */
   next_price: string;
   /** Real payments are set up on the server. */
   payments: boolean;

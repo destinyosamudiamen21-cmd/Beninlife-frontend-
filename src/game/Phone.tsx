@@ -6,12 +6,13 @@ import { DataApp, HelpApp, MeApp, SchoolApp } from "./PhoneApps";
 import { BankApp } from "./PhoneBank";
 import { FriendsApp } from "./PhoneFriends";
 import { AdminApp, SafetyApp } from "./PhoneSafety";
+import { JobsApp } from "./PhoneJobs";
 import { MessagesApp } from "./PhoneMessages";
 import { Glyph } from "./glyphs";
 import { naira } from "./phoneKit";
 import type { RosterEntry } from "./types";
 
-type AppId = "messages" | "friends" | "bank" | "map" | "data" | "school" | "me" | "help" | "safety" | "admin";
+type AppId = "messages" | "friends" | "bank" | "map" | "jobs" | "data" | "school" | "me" | "help" | "safety" | "admin";
 
 /** The apps on the home screen: the picture, the name under it and the colour of its medallion. */
 const APPS: { id: AppId; name: string; glyph: string; colour: string; students?: boolean; admins?: boolean }[] = [
@@ -19,6 +20,7 @@ const APPS: { id: AppId; name: string; glyph: string; colour: string; students?:
   { id: "friends", name: "Friends", glyph: "people", colour: "linear-gradient(#ffb340, #ff7a00)" },
   { id: "bank", name: "Bank", glyph: "bank", colour: "linear-gradient(#7b5cff, #4a26e0)" },
   { id: "map", name: "Maps", glyph: "map", colour: "linear-gradient(#5ac8fa, #0a84ff)" },
+  { id: "jobs", name: "Jobs", glyph: "work", colour: "linear-gradient(#34c759, #0f5d3a)" },
   { id: "data", name: "Data", glyph: "data", colour: "linear-gradient(#30d5c8, #0a9396)" },
   { id: "school", name: "School", glyph: "school", colour: "linear-gradient(#ffd60a, #ff9f0a)", students: true },
   { id: "me", name: "Me", glyph: "person", colour: "linear-gradient(#a1a1a6, #636366)" },
@@ -54,6 +56,8 @@ type Props = {
   onUnread: (count: number) => void;
   /** The Map app was pressed: the phone goes away and the city map opens. */
   onMap: () => void;
+  /** "Show on the map" in the Jobs app: the phone goes away and the map opens on that place. */
+  onShow: (place: string) => void;
   onClose: () => void;
   /** Sign out of this browser. Left out when there is no account to sign out of. */
   onSignOut?: () => void;
@@ -73,7 +77,7 @@ type Props = {
  * All of its styles are in this file, so nothing has to be added to index.css. Each app
  * is in a file of its own (PhoneMessages.tsx and so on) and draws itself with them.
  */
-export function Phone({ playerId, username, student, nearby, arrivals, money, life, story, onMoney, onUnread, onMap, onClose, onSignOut, admin = false }: Props) {
+export function Phone({ playerId, username, student, nearby, arrivals, money, life, story, onMoney, onUnread, onMap, onShow, onClose, onSignOut, admin = false }: Props) {
   const [app, setApp] = useState<AppId | null>(null);
   const [chatWith, setChatWith] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
@@ -111,11 +115,29 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
     else setApp(id);
   };
 
+  // Escape puts the phone away, from anywhere in it (a message being typed keeps Escape for itself).
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) close.current();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+
   const energy = life ? Math.round(life.needs.energy) : null;
   const apps = APPS.filter((entry) => (!entry.students || student) && (!entry.admins || admin));
 
   return (
-    <div className="ph" role="dialog" aria-label="Your phone">
+    <div
+      className="ph"
+      role="dialog"
+      aria-label="Your phone"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose(); // a tap on the street around the phone puts it away
+      }}
+    >
       <style>{`
         /* The phone is drawn like the big Pro phones of 2023: a thin titanium edge, a pill-shaped
            island at the top, square icons with round corners, a frosted dock, and apps in the
@@ -135,6 +157,12 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
         @media (max-width: 520px), (max-height: 700px) {
           .ph { padding: 0; } .ph-shell { padding: 0; border-radius: 0; box-shadow: none; } .ph-shell::before, .ph-shell::after { display: none; }
           .ph-body { width: 100vw; height: 100dvh; border-radius: 0; } }
+        /* Putting the phone away: one big, plain button, always in the same place. */
+        .ph-away { position: absolute; z-index: 30; top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right));
+          display: flex; align-items: center; gap: 6px; border: none; border-radius: 999px; padding: 9px 14px; font-size: 14px; font-weight: 700;
+          background: rgba(28, 28, 30, 0.86); color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+        .ph-away:active { transform: scale(0.95); }
+        @media (min-width: 521px) and (min-height: 701px) { .ph-away { top: 22px; right: 22px; } }
         @keyframes ph-up { from { transform: translateY(40px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { .ph-shell { animation: none; } }
 
@@ -292,6 +320,9 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
           display: flex; align-items: center; justify-content: center; gap: 8px; }
       `}</style>
 
+      <button type="button" className="ph-away" onClick={onClose} aria-label="Put phone away">
+        ✕ Put away
+      </button>
       <div className="ph-shell">
       <div className="ph-body">
         <div className="ph-island" aria-hidden="true">
@@ -384,6 +415,7 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
         {app === "school" && <SchoolApp playerId={playerId} onBack={home} />}
         {app === "me" && <MeApp username={username} money={money} life={life} story={story} onBack={home} onSignOut={onSignOut} />}
         {app === "help" && <HelpApp onBack={home} />}
+        {app === "jobs" && <JobsApp playerId={playerId} onBack={home} onShow={onShow} />}
         {app === "safety" && <SafetyApp playerId={playerId} nearby={nearby} onBack={home} />}
         {app === "admin" && admin && <AdminApp onBack={home} />}
 

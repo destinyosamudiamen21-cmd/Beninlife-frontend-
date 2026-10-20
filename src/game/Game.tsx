@@ -32,9 +32,12 @@ import { LimitSheet } from "./LimitSheet";
 import { GoalsPanel } from "./GoalsPanel";
 import { EstateHouses, plotDoors } from "./EstateHouses";
 import { PalmCourt } from "./PalmCourt";
+import { Offices } from "./Offices";
+import { OFFICE_SOLIDS } from "./officeShapes";
 import { PALM_COURT_SOLIDS } from "./palmCourtShapes";
 import { fetchAddress, fetchEstates, HOME_PLACE, type Address, type HousePlot } from "../api/estates";
 import { fetchGoals, readyCount, type Goals } from "../api/goals";
+import { fetchMissions, missionsReady, type Missions } from "../api/missions";
 import { ClubScene } from "./ClubScene";
 import { Compass } from "./Compass";
 import { CrewBar } from "./CrewBar";
@@ -51,7 +54,7 @@ import { Guide } from "./Guide";
 import { HomeScene } from "./HomeScene";
 import { EMPTY_VIEW, type BuildView } from "./homeBuild";
 import { isDone, serverNow, syncClock } from "./homeRooms";
-import { LifeActions, LifeHud } from "./LifePanel";
+import { LifeActions, LifeStrip } from "./LifePanel";
 import { LocalPlayer, type Driving } from "./LocalPlayer";
 import { MapPanel } from "./MapPanel";
 import { MarketPeople } from "./MarketPeople";
@@ -269,6 +272,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const [goals, setGoals] = useState<Goals | null>(null);
   const [goalsOpen, setGoalsOpen] = useState(false);
   const goalsReady = useRef(0);
+  const [missions, setMissions] = useState<Missions | null>(null);
+  const missionsDone = useRef(0);
   // Houses on the map: where this player's front door is, and every house on this district's streets.
   const [address, setAddress] = useState<Address | null>(null);
   const [plots, setPlots] = useState<HousePlot[]>([]);
@@ -505,7 +510,9 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     }),
     ...streetCarBoxes.current(),
     // Palm Court's canopy columns and fountain (palmCourtShapes.ts), in GRA.
-    ...(districtIdRef.current === "gra" ? PALM_COURT_SOLIDS.map(({ x, z, hx, hz }) => ({ x, z, ux: 1, uz: 0, halfLong: hx, halfWide: hz })) : []),
+    ...(districtIdRef.current === "gra"
+      ? [...PALM_COURT_SOLIDS, ...OFFICE_SOLIDS].map(({ x, z, hx, hz }) => ({ x, z, ux: 1, uz: 0, halfLong: hx, halfWide: hz }))
+      : []),
   ], []);
   // What a car being driven bumps into besides the street: the parked cars and the traffic.
   const roadBoxes = useCallback((): Box[] => {
@@ -710,6 +717,20 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     }
   };
 
+  /** "Show me" a place: the map opens on it, with every way to get there (walking puts an arrow on the street). */
+  const showPlace = (place: string) => {
+    if (place === HOME_PLACE) {
+      void headHome();
+      return;
+    }
+    if (!district || scene.kind !== "street") {
+      flash("Go outside first, then press Show me again.");
+      return;
+    }
+    openMap();
+    setPickedPlace(place);
+  };
+
   /**
    * The Home button. A house is a building on the map with its own front door (estate_service):
    * at the door, in they go; on the same streets, an arrow shows the way; across town, the
@@ -799,6 +820,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       streetSpot.current = { x: door.x, z: door.z };
       homeLife.leave();
       setScene({ kind: "club" });
+      faceNorth();
       appearAt(CLUB.door.x, CLUB.door.z);
       sendPlace("venue:club");
       music.start(); // they pressed a button to come in, so the browser allows sound
@@ -827,6 +849,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     streetSpot.current = { x: door.x, z: door.z };
     homeLife.leave();
     setScene({ kind: "venue", id: layout.id });
+    faceNorth(); // in through the door, looking into the room, whichever way they faced outside
     appearAt(layout.entry.x, layout.entry.z);
     sendPlace(`venue:${layout.id}`);
     // They pressed a button to come in, so the browser allows sound. A club always has
@@ -1938,8 +1961,26 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
           setGoals(now);
         })
         .catch(() => {});
+    // Missions: the same, and a mission newly finished is said out loud too.
+    const lookMissions = () =>
+      fetchMissions(player.id)
+        .then((now) => {
+          if (stop) return;
+          const ready = missionsReady(now);
+          if (ready > missionsDone.current) {
+            const fresh = now.active.find((mission) => mission.done);
+            if (fresh) flash(`✅ Mission done: ${fresh.title}. Open Missions to collect ₦${fresh.reward.toLocaleString()}.`);
+          }
+          missionsDone.current = ready;
+          setMissions(now);
+        })
+        .catch(() => {});
     look();
-    const timer = window.setInterval(look, goalsOpen ? 10_000 : 45_000);
+    lookMissions();
+    const timer = window.setInterval(() => {
+      look();
+      lookMissions();
+    }, goalsOpen ? 10_000 : 30_000);
     return () => {
       stop = true;
       window.clearInterval(timer);
@@ -2097,6 +2138,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         {!mapOpen && scene.kind === "street" && district && <StreetExtras data={district} onNearDoor={setNearDoor} extraDoors={homeDoors} />}
         {!mapOpen && scene.kind === "street" && district && <EstateHouses plots={plots} />}
         {!mapOpen && scene.kind === "street" && district?.id === "gra" && <PalmCourt />}
+        {!mapOpen && scene.kind === "street" && district?.id === "gra" && <Offices />}
         {!mapOpen && scene.kind === "street" && district?.id === "gra" && <RaceField race={race} offset={raceOffset} />}
         {!mapOpen && scene.kind === "street" && district && <PotholeLayer district={district} />}
         {!mapOpen && scene.kind === "street" && district && <WeatherLayer district={district} clockOffset={patrols.offset} light={touchScreen} />}
@@ -2150,7 +2192,9 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               said={said[player.id] ?? ""}
               out={homeLife.wakeAt !== null}
               spraying={homeLife.life?.doing?.pose === "spray"}
-              orbit={scene.kind === "street" || scene.kind === "home" || Boolean(venue?.open) || (scene.kind === "venue" && view === "first")}
+              orbit={scene.kind === "street" || scene.kind === "home" || scene.kind === "venue" || scene.kind === "club"}
+              room={scene.kind === "club" ? { width: CLUB.width, depth: CLUB.depth, height: CLUB.wallHeight }
+                : venue && !venue.open ? { width: venue.width, depth: venue.depth, height: venue.wallHeight } : null}
               frozen={decorating}
               driving={
                 scene.kind === "street" && driving
@@ -2245,6 +2289,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
           {inClub ? (
             <span />
           ) : (
+            <div className="hud-left">
             <div className="hud-card">
               <strong>
                 <button
@@ -2265,6 +2310,9 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               <span className={connected ? "online" : "offline"}>
                 {connected ? `${remotes.length + 1} online` : "Connecting…"}
               </span>
+            </div>
+            {/* The needs, as a thin strip under the card (tap it for the full card): out of the way of the street. */}
+            {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && !decorating && !driving && <LifeStrip life={homeLife.life} />}
             </div>
           )}
           {!customising && (
@@ -2303,8 +2351,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               )}
               {story?.done && scene.kind !== "arena" && !decorating && (
                 <button type="button" className="hud-button" onClick={() => setGoalsOpen(true)}>
-                  Goals
-                  {readyCount(goals) > 0 && <span className="hud-dot">{readyCount(goals)}</span>}
+                  Missions
+                  {readyCount(goals) + missionsReady(missions) > 0 && <span className="hud-dot">{readyCount(goals) + missionsReady(missions)}</span>}
                 </button>
               )}
               {story?.done && scene.kind !== "arena" && !decorating && (
@@ -2319,7 +2367,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
                 </button>
               )}
               {/* Out on the street the camera can be swung right round. This shows which way is north, and puts it back. */}
-              {(scene.kind === "street" || scene.kind === "home" || scene.kind === "venue") && (
+              {(scene.kind === "street" || scene.kind === "home" || scene.kind === "venue" || scene.kind === "club") && (
                 <button
                   type="button"
                   className="view-switch"
@@ -2329,7 +2377,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
                   {view === "first" ? "3rd" : "1st"}
                 </button>
               )}
-              {!indoors && <Compass read={() => cameraView.yaw} onReset={faceNorth} />}
+              {/* Outside it shows north; indoors, a tap puts the view back to the front of the room. */}
+              {(!indoors || scene.kind === "venue" || scene.kind === "club") && <Compass read={() => cameraView.yaw} onReset={faceNorth} />}
             </div>
           )}
         </div>
@@ -2482,7 +2531,6 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       {raceResult && <RaceResultSheet race={raceResult.race} message={raceResult.message} onClose={() => setRaceResult(null)} />}
 
       {/* Needs and the player's own clock: always in view, except where they would cover a fight or a form. */}
-      {homeLife.life && !overlay && !storyOpen && !fighting && ride === null && !decorating && !driving && <LifeHud life={homeLife.life} />}
 
       {/* Friends: an invite to answer, and who is rolling with this player. */}
       {!storyOpen && ride === null && (
@@ -2687,6 +2735,15 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
           playerId={player.id}
           goals={goals}
           onGoals={setGoals}
+          missions={missions}
+          onMissions={(now) => {
+            setMissions(now);
+            missionsDone.current = missionsReady(now);
+          }}
+          onShow={(place) => {
+            setGoalsOpen(false);
+            showPlace(place);
+          }}
           onMoney={setMoney}
           onNews={flash}
           onClose={() => setGoalsOpen(false)}
@@ -2737,6 +2794,10 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
             setPhoneOpen(false); // put away first, so whatever the map has to say can be seen
             void loadLife();
             openMap();
+          }}
+          onShow={(place) => {
+            setPhoneOpen(false);
+            showPlace(place);
           }}
           onClose={() => {
             setPhoneOpen(false);

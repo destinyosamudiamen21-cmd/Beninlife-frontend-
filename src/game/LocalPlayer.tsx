@@ -78,6 +78,7 @@ export type Driving = {
 
 // No brake: at a standstill the brake pedal means reverse.
 const HELD = { gas: 0, brake: 0, steer: 0, horn: false };
+const HOLD_BRAKING = 14;   // m/s², a firm stop: 60 km/h to nothing in about a second and a quarter
 
 // Scratch vectors, reused every frame so the render loop allocates nothing.
 const cameraGoal = new Vector3();
@@ -121,7 +122,13 @@ type Props = {
   ridingLook?: string;
   /** From behind the player, or through their eyes. */
   view?: View;
+  /** Indoors, the room the camera must stay in when it is swung round: its walls (x from 0 to width,
+   *  z from 0 to depth) and its ceiling. The front (z = depth) is open, as the room is drawn. */
+  room?: { width: number; depth: number; height: number } | null;
 };
+
+const ROOM_PAD = 0.35;   // metres the camera keeps from a wall
+const CEILING_PAD = 0.3; // ... and from the ceiling
 
 /** Where a pair of eyes in a car's seat is, in the world: the driver's seat, or the one beside it. */
 function seatEye(look: string, x: number, z: number, heading: number, passenger: boolean, out: Vector3): void {
@@ -141,7 +148,7 @@ function shortestAngle(from: number, to: number): number {
 
 export function LocalPlayer({
   start, sendMove, takeServerPosition, look, customising, collider, fight, hold, said = "", out = false, spraying = false, orbit = false, frozen = false,
-  driving = null, riding = null, ridingLook = "", view = "third",
+  driving = null, riding = null, ridingLook = "", view = "third", room = null,
 }: Props) {
   const bodyRef = useRef<Group>(null);
   const speedRef = useRef(0);
@@ -257,8 +264,12 @@ export function LocalPlayer({
     }
     if (driving && car) {
       // At the wheel.
-      const input = driving.holdUntil !== undefined && Date.now() < driving.holdUntil ? HELD : readPedals();
+      const held = driving.holdUntil !== undefined && Date.now() < driving.holdUntil;
+      const input = held ? HELD : readPedals();
       drive(car, input, driving.stats, dt, driving.ground, driving.boxes?.() ?? []);
+      // Held (pulled over by the police, or on the start line): the car is brought to a stop, not
+      // left to roll on. Done here, not with the pedal, which would reverse it once it stops.
+      if (held && car.speed !== 0) car.speed -= Math.sign(car.speed) * Math.min(Math.abs(car.speed), HOLD_BRAKING * dt);
       // Flood water: the car ploughs through it, slow, whatever the pedal says.
       const wade = wadeFactor(car.x, car.z);
       if (wade < 1) {
@@ -473,6 +484,14 @@ export function LocalPlayer({
       const back = CAMERA_DISTANCE * zoom;
       cameraGoal.set(x + sin * back, y + CAMERA_LOOK_HEIGHT + lift, z + cos * back);
       lookGoal.set(x, y + CAMERA_LOOK_HEIGHT, z);
+      if (room) {
+        // Swung round indoors, the camera stays inside the walls and under the ceiling, so
+        // the player can look round the room instead of at the back of a wall. Out past the
+        // open front it may go (that is where the room is seen from when nobody turns).
+        cameraGoal.x = Math.min(room.width - ROOM_PAD, Math.max(ROOM_PAD, cameraGoal.x));
+        cameraGoal.z = Math.max(ROOM_PAD, cameraGoal.z);
+        if (cameraGoal.z < room.depth) cameraGoal.y = Math.min(cameraGoal.y, room.height - CEILING_PAD);
+      }
     }
 
     if (frozen) {

@@ -29,7 +29,7 @@ type Props = {
 };
 
 // Doors whose fronts are drawn by something else (Palm Court: PalmCourt.tsx), not by this file.
-const OWN_FRONT = new Set(["ivorypalm", "spot:palm_leasing"]);
+const OWN_FRONT = new Set(["ivorypalm", "spot:palm_leasing", "bank", "techhub"]);
 
 /**
  * What a district has besides its streets and buildings: the roof over its footbridge,

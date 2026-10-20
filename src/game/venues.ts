@@ -50,7 +50,7 @@ export type Lighting = "bright" | "warm" | "club" | "dark" | "night" | "day" | "
 
 export type VenueKind =
   | "club" | "lounge" | "museum" | "haunted" | "mall" | "hospital" | "police" | "golf" | "cinema" | "food" | "shop" | "aquarium" | "flyover" | "zoo" | "showroom"
-  | "hotel";
+  | "hotel" | "office";
 
 export type VenueLayout = {
   id: string;
@@ -1155,6 +1155,122 @@ function dealer(): VenueLayout {
   });
 }
 
+// ---- the offices on Boundary Road: where the office jobs are (career_service.py) ----------------
+// Oba Trust Bank: a marble banking hall, tellers behind glass along the back, a queue, and the staff
+// desks on the right where a player works their shift once hired at reception.
+
+function bankHall(): VenueLayout {
+  const width = 26, depth = 18;
+  const green = "#0f5d3a", gold = "#c9a24e", marble = "#f1ede4", wood = "#5a3a24";
+  const boxes: Box[] = [
+    // Reception, by the door on the left: a curved green desk with a gold top.
+    solid(5, 13.6, 2.2, 0.55, 1.05, green), glow(5, 13.6, 2.25, 0.6, 1.05, 1.1, gold),
+    // The tellers along the back: a long counter, glass above it, a number over each window.
+    solid(13, 3.2, 8.5, 0.5, 1.1, wood), deco(13, 3.2, 8.55, 0.55, 1.1, 1.16, marble),
+    { ...deco(13, 3.35, 8.5, 0.03, 1.16, 2.6, "#bfe3dc"), glass: true },
+    ...[0, 1, 2, 3].map((i) => glow(7 + i * 4, 3.42, 0.35, 0.02, 2.75, 3.1, "#ff5c4a")),
+    deco(13, 0.12, 9, 0.08, 3.4, 4.6, green), glow(13, 0.21, 8.8, 0.02, 3.42, 3.48, gold),
+    // The queue: brass posts with a green rope between them.
+    ...[6, 8, 10, 12, 14, 16].map((x) => deco(x, 6.2, 0.06, 0.06, 0, 0.95, gold)),
+    deco(11, 6.2, 5, 0.03, 0.8, 0.88, green),
+    // Waiting chairs in two rows.
+    ...[9, 11, 13, 15].flatMap((x) => [solid(x, 10.4, 0.45, 0.4, 0.5, "#2b2f36"), deco(x, 10.75, 0.45, 0.08, 0.5, 1.0, "#2b2f36")]),
+    // The staff desks, right: four desks, a screen on each, chairs behind.
+    ...[[20.5, 7], [23.5, 7], [20.5, 10.5], [23.5, 10.5]].flatMap(([x, z]) => [
+      solid(x, z, 1.2, 0.6, 0.75, "#e9e3d6"), deco(x, z - 0.3, 0.45, 0.04, 0.75, 1.15, "#1d1d22"), glow(x, z - 0.26, 0.4, 0.01, 0.8, 1.1, "#8fd3ff"),
+      deco(x, z + 0.95, 0.3, 0.3, 0, 0.5, "#1d1d22"),
+    ]),
+    // The vault door in the back-right corner, and a manager's glass office back left.
+    deco(23.5, 0.18, 1.6, 0.1, 0.2, 3.4, "#9aa0a6"), deco(23.5, 0.3, 1.0, 0.06, 0.8, 2.8, "#c9ccd0"), glow(23.5, 0.36, 0.25, 0.02, 1.7, 1.95, gold),
+    { ...deco(2.6, 5.5, 2.5, 0.03, 0, 2.8, "#cfe9e1"), glass: true }, { ...deco(5.1, 3, 0.03, 2.5, 0, 2.8, "#cfe9e1"), glass: true },
+    solid(2.4, 2.4, 1.3, 0.6, 0.75, wood), deco(2.4, 1.2, 0.35, 0.35, 0, 1.0, "#1d1d22"),
+    // The staff canteen counter, front right, and plants by the door.
+    solid(23, 15.8, 2.2, 0.5, 1.0, marble), deco(22, 15.8, 0.3, 0.25, 1.0, 1.45, "#3a3d42"), glow(22, 15.55, 0.1, 0.01, 1.2, 1.3, "#ff3b30"),
+    ...plant(1, 17), ...plant(25, 13.4), ...plant(17, 1),
+    // Lines of light across the ceiling.
+    ...[4, 9, 14].map((z) => glow(13, z, 11, 0.06, 5.35, 5.42, "#ffffff")),
+  ];
+  return room({
+    id: "bank", name: "Oba Trust Bank", kind: "office", width, depth, wallHeight: 5.5,
+    floor: marble, floorAlt: "#e7e1d4", wall: "#f4efe5", trim: green, sky: "#14110d", lighting: "bright",
+    boxes,
+    things: [
+      { spot: "bank_reception", name: "Reception", verb: "Ask at", x: 5, z: 13.6, hx: 2.2, hz: 0.55, reach: 1.4, stand: { x: 5, z: 14.8, rot: Math.PI } },
+      { spot: "bank_desk", name: "Your desk", verb: "Sit at", x: 22, z: 8.8, hx: 3, hz: 2.6, reach: 1.0, stand: { x: 20.5, z: 7.95, rot: Math.PI } },
+      { spot: "bank_canteen", name: "Staff canteen", verb: "Go to the", x: 23, z: 15.8, hx: 2.2, hz: 0.5, reach: 1.3, stand: { x: 23, z: 16.9, rot: Math.PI } },
+    ],
+    people: [
+      { x: 5, z: 12.8, rot: 0, look: STAFF(2, green, "woman"), label: "Receptionist" },
+      ...[7, 11, 15, 19].map((x, i): Person => ({ x, z: 2.3, rot: 0, look: STAFF(i, i % 2 ? "#f4f4f2" : green, i % 2 ? "man" : "woman") })),
+      { x: 9, z: 5.4, rot: Math.PI, look: PARTY[1] }, { x: 11, z: 5.4, rot: Math.PI, look: PARTY[2] }, { x: 13, z: 5.4, rot: Math.PI, look: PARTY[5] },
+      { x: 11, z: 10.4, rot: Math.PI, look: PARTY[0], move: "sit" },
+      { x: 23.5, z: 7.95, rot: Math.PI, look: STAFF(5, "#f4f4f2"), move: "sit" },
+      { x: 12.5, z: 16.8, rot: 0, look: POLICE(3), label: "Security" },
+    ],
+    signs: [
+      { text: "OBA TRUST BANK", x: 13, y: 4.1, z: 0.32, size: 0.55, colour: gold },
+      { text: "Tellers", x: 13, y: 3.0, z: 3.5, size: 0.28, colour: "#1d1d22" },
+      { text: "Reception · Jobs", x: 5, y: 2.2, z: 13.0, size: 0.32, colour: green, back: "#f4efe5" },
+      { text: "Staff only", x: 22, y: 2.6, z: 5.0, size: 0.28, colour: green },
+    ],
+  });
+}
+
+// Edo Tech Hub: concrete, white and lime. Reception by the door, rows of desks with two screens
+// each, a glass meeting pod, a wall of sticky notes, and the kitchen with the PlayStation.
+
+function techHub(): VenueLayout {
+  const width = 26, depth = 20;
+  const lime = "#9dff5c", ink = "#0d1117", white = "#f4f4f2";
+  const boxes: Box[] = [
+    // Reception, and a neon sign on the wall behind it.
+    solid(5.5, 15.8, 2.4, 0.55, 1.05, white), glow(5.5, 16.37, 2.3, 0.02, 0.15, 0.2, lime),
+    deco(5.5, 13.9, 3, 0.08, 1.3, 3.4, ink),
+    // Desks in three rows, two screens on each, chairs behind.
+    ...[4.5, 8, 11.5].flatMap((z) => [10.5, 14, 17.5, 21].flatMap((x) => [
+      solid(x, z, 1.5, 0.6, 0.74, white),
+      deco(x - 0.4, z - 0.35, 0.35, 0.03, 0.8, 1.2, "#1d1d22"), deco(x + 0.4, z - 0.35, 0.35, 0.03, 0.8, 1.2, "#1d1d22"),
+      glow(x - 0.4, z - 0.31, 0.3, 0.01, 0.85, 1.15, (x + z) % 2 ? "#8fd3ff" : "#c9f7a8"), glow(x + 0.4, z - 0.31, 0.3, 0.01, 0.85, 1.15, "#1e2a3a"),
+      deco(x, z + 0.9, 0.3, 0.3, 0, 0.5, ink),
+    ])),
+    // The meeting pod: glass on three sides, a table inside.
+    { ...deco(4, 7.5, 3, 0.03, 0, 2.6, "#d6f5c9"), glass: true }, { ...deco(7, 4.5, 0.03, 3, 0, 2.6, "#d6f5c9"), glass: true },
+    solid(4, 4.2, 1.8, 0.9, 0.74, "#b07a4a"), deco(4, 1.6, 2, 0.06, 0.8, 2.4, white),
+    // The wall of sticky notes, and "Ship it" in lime.
+    ...Array.from({ length: 24 }, (_, i) => deco(11 + (i % 8) * 1.2, 0.16, 0.25, 0.02, 1.4 + Math.floor(i / 8) * 0.55, 1.85 + Math.floor(i / 8) * 0.55,
+      ["#ffd23f", "#ff8fab", "#8fd3ff", "#c9f7a8"][i % 4])),
+    // The kitchen and the games corner, front right: counter, coffee machine, a TV and beanbags.
+    solid(22.5, 17.6, 2.8, 0.5, 0.95, white), deco(21, 17.6, 0.3, 0.25, 0.95, 1.4, ink), glow(21, 17.35, 0.08, 0.01, 1.15, 1.25, lime),
+    deco(25.8, 13.5, 0.08, 1.4, 1.0, 2.2, ink), glow(25.7, 13.5, 0.01, 1.3, 1.05, 2.15, "#2a8cd6"),
+    ...[[23.5, 12.6, "#e2603b"], [23.5, 14.4, "#7a3fb0"]].map(([x, z, c]) => solid(x as number, z as number, 0.55, 0.55, 0.45, c as string)),
+    // Plants, and lime light along the top of the walls.
+    ...plant(1, 18.8), ...plant(25, 1), ...plant(8.6, 18.8),
+    glow(width / 2, 0.06, width / 2 - 0.3, 0.02, 4.35, 4.4, lime),
+    ...[4.5, 8, 11.5].map((z) => glow(16, z, 6, 0.05, 4.45, 4.5, "#ffffff")),
+  ];
+  return room({
+    id: "techhub", name: "Edo Tech Hub", kind: "office", width, depth, wallHeight: 4.6,
+    floor: "#b9b6b0", floorAlt: "#b1aea8", wall: white, trim: lime, sky: "#0d1117", lighting: "bright",
+    boxes,
+    things: [
+      { spot: "tech_reception", name: "Reception", verb: "Ask at", x: 5.5, z: 15.8, hx: 2.4, hz: 0.55, reach: 1.4, stand: { x: 5.5, z: 17, rot: Math.PI } },
+      { spot: "tech_desk", name: "Your desk", verb: "Sit at", x: 15.75, z: 8, hx: 7, hz: 4.2, reach: 0.8, stand: { x: 14, z: 8.9, rot: Math.PI } },
+      { spot: "tech_kitchen", name: "Kitchen and games", verb: "Go to the", x: 23.5, z: 15.5, hx: 2.4, hz: 2.6, reach: 1.0, stand: "here" },
+    ],
+    people: [
+      { x: 5.5, z: 15, rot: 0, look: STAFF(1, lime, "woman"), label: "Receptionist" },
+      ...[[10.5, 5.4], [17.5, 5.4], [21, 8.9], [10.5, 12.4], [17.5, 12.4]].map(([x, z], i): Person => ({ x, z, rot: Math.PI, look: PARTY[i % PARTY.length], move: "sit" })),
+      { x: 4, z: 5.2, rot: Math.PI, look: STAFF(4, ink), move: "sit" }, { x: 3, z: 3.2, rot: 0, look: PARTY[3], move: "sit" },
+      { x: 23.5, z: 12.6, rot: Math.PI / 2, look: PARTY[5], move: "sit" }, { x: 23.5, z: 14.4, rot: Math.PI / 2, look: PARTY[1], move: "sit" },
+    ],
+    signs: [
+      { text: "EDO TECH HUB", x: 5.5, y: 2.7, z: 13.99, size: 0.5, colour: lime, back: ink },
+      { text: "Reception · Jobs", x: 5.5, y: 1.85, z: 13.99, size: 0.26, colour: white, back: ink },
+      { text: "Ship it.", x: 15.3, y: 3.6, z: 0.18, size: 0.5, colour: "#1f9d6a" },
+    ],
+  });
+}
+
 // ---- the Ivory Palm Hotel ---------------------------------------------------------------------------------
 // On Sapele Link in GRA. An ivory marble lobby with the front desk on the left under a gold
 // backdrop, the lobby bar on the right, and through the planters at the back the restaurant
@@ -1249,7 +1365,7 @@ export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
     aquarium(),
     club("patricia", "Rooftop Club", 26, 20), club("patio", "Afrobeats Club", 26, 20), club("space", "Neon Club", 26, 20),
     club("darkalley", "Underground Club", 24, 18),
-    haunted(), golf(), flyover(), zoo(), dealer(), mimeals(), ivoryPalm(),
+    haunted(), golf(), flyover(), zoo(), dealer(), mimeals(), ivoryPalm(), bankHall(), techHub(),
   ].map((layout) => [layout.id, layout]),
 );
 

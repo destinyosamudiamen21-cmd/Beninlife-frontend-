@@ -3,7 +3,7 @@ import { useFrame } from "@react-three/fiber";
 import { BufferAttribute, BufferGeometry, CanvasTexture, DoubleSide, SRGBColorSpace, type Mesh } from "three";
 import { buildBoxes, type BoxSpec } from "./boxBuilder";
 import type { MeshData } from "./districtGeometry";
-import { buildPalmCourt } from "./palmCourtShapes";
+import { buildPalmCourt, type PalmCourtParts } from "./palmCourtShapes";
 
 function toGeometry(mesh: MeshData): BufferGeometry {
   const geometry = new BufferGeometry();
@@ -55,6 +55,11 @@ export function signTexture(text: string, colour: string, back: string, aspect: 
  */
 export function PalmCourt() {
   const parts = useMemo(() => buildPalmCourt(), []);
+  return <Built parts={parts} name="palm-court" />;
+}
+
+/** Any set of parts (palmCourtShapes.ts, officeShapes.ts) drawn: one mesh for each kind of surface, and the signs. */
+export function Built({ parts, name }: { parts: PalmCourtParts; name: string }) {
   const meshes = useMemo(
     () => ({
       solid: boxes(parts.solid),
@@ -85,7 +90,7 @@ export function PalmCourt() {
   });
 
   return (
-    <group name="palm-court">
+    <group name={name}>
       <mesh geometry={meshes.solid} castShadow receiveShadow>
         <meshLambertMaterial vertexColors />
       </mesh>

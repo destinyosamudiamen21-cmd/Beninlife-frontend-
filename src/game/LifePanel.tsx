@@ -4,15 +4,12 @@ import type { HomeLife } from "./useHomeLife";
 
 const naira = (amount: number) => `₦${amount.toLocaleString()}`;
 
-const BARS: {
-  id: "energy" | "food" | "hygiene" | "fun" | "social";
-  name: string;
-}[] = [
-  { id: "energy", name: "Energy" },
-  { id: "food", name: "Food" },
-  { id: "hygiene", name: "Hygiene" },
-  { id: "fun", name: "Fun" },
-  { id: "social", name: "Social" },
+const BARS: { id: "energy" | "food" | "hygiene" | "fun" | "social"; name: string; icon: string }[] = [
+  { id: "energy", name: "Energy", icon: "⚡" },
+  { id: "food", name: "Food", icon: "🍲" },
+  { id: "hygiene", name: "Hygiene", icon: "🧼" },
+  { id: "fun", name: "Fun", icon: "🎉" },
+  { id: "social", name: "Social", icon: "💬" },
 ];
 
 /** Green when a need is fine, amber when it wants attention, red when it is urgent. */
@@ -42,6 +39,21 @@ function LifeStyles() {
       .life-mood { font-size: 11px; color: #6b736f; margin-top: 1px; }
       .life-mood strong { color: #1f2a26; }
       @media (max-width: 480px) { .life-hud { width: 148px; padding: 7px 9px 8px; } .life-need > span:first-child { width: 44px; } }
+
+      /* The needs as one thin strip under the name card, out of the way of the street. Tap it for the full card. */
+      .hud-left { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; pointer-events: none; }
+      .life-strip { pointer-events: auto; display: flex; align-items: center; gap: 7px; border: none; cursor: pointer;
+        background: rgba(255, 255, 255, 0.86); color: #1f2a26; border-radius: 999px; padding: 4px 10px 4px 8px; font: inherit; max-width: 100%; }
+      .life-strip-clock { font-size: 11px; font-weight: 700; white-space: nowrap; color: #4c5651; }
+      .life-chip { display: flex; align-items: center; gap: 2px; }
+      .life-chip i { font-style: normal; font-size: 11px; line-height: 1; }
+      .life-mini { display: flex; width: 20px; height: 5px; border-radius: 3px; background: #e3ddd0; overflow: hidden; }
+      .life-mini span { border-radius: 3px; transition: width 0.4s ease-out; }
+      .life-chip.life-alarm i { animation: life-pulse 1s ease-in-out infinite; }
+      @keyframes life-pulse { 50% { transform: scale(1.35); } }
+      .hud-left .life-hud { position: static; pointer-events: auto; }
+      @media (max-width: 480px) { .life-mini { width: 14px; } .life-strip { gap: 5px; padding: 4px 8px 4px 7px; } }
+      @media (prefers-reduced-motion: reduce) { .life-chip.life-alarm i { animation: none; } }
 
       .life-action { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
       .life-action strong { font-size: 15px; }
@@ -89,33 +101,66 @@ function LifeStyles() {
   );
 }
 
-/** The player's needs and their own clock: a small card that is always in view. */
-export function LifeHud({ life }: { life: Life }) {
+/**
+ * The needs as a thin strip under the name card: an icon and a short bar each, and the time.
+ * A need that is running out pulses. Tapped, the full card opens below it (and closes again).
+ */
+export function LifeStrip({ life }: { life: Life }) {
+  const [open, setOpen] = useState(false);
   const { needs, clock } = life;
   return (
     <>
       <LifeStyles />
-      <div className='life-hud'>
-        <div className='life-clock'>
+      <button
+        type="button"
+        className="life-strip"
+        aria-expanded={open}
+        aria-label={`Day ${clock.day}, ${clock.text}. ${BARS.map((bar) => `${bar.name} ${needs[bar.id]}`).join(", ")}. Mood: ${needs.mood_name}. Tap for more.`}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="life-strip-clock">{clock.hour >= 19 || clock.hour < 6 ? "🌙" : "☀️"} {clock.text}</span>
+        {BARS.map((bar) => (
+          <span key={bar.id} className={`life-chip${needs[bar.id] < 25 ? " life-alarm" : ""}`} title={`${bar.name}: ${needs[bar.id]}`}>
+            <i aria-hidden="true">{bar.icon}</i>
+            <b className="life-mini" aria-hidden="true">
+              <span className={level(needs[bar.id])} style={{ width: `${needs[bar.id]}%` }} />
+            </b>
+          </span>
+        ))}
+      </button>
+      {open && <LifeCard life={life} />}
+    </>
+  );
+}
+
+/** The player's needs and their own clock: a small card that is always in view. */
+export function LifeHud({ life }: { life: Life }) {
+  return (
+    <>
+      <LifeStyles />
+      <LifeCard life={life} />
+    </>
+  );
+}
+
+function LifeCard({ life }: { life: Life }) {
+  const { needs, clock } = life;
+  return (
+    <>
+      <div className="life-hud">
+        <div className="life-clock">
           Day {clock.day} · {clock.block}
           <span>{clock.text}</span>
         </div>
         {BARS.map((bar) => (
-          <div key={bar.id} className='life-need'>
+          <div key={bar.id} className="life-need">
             <span>{bar.name}</span>
-            <div
-              className='life-bar'
-              role='img'
-              aria-label={`${bar.name}: ${needs[bar.id]} of 100`}
-            >
-              <span
-                className={level(needs[bar.id])}
-                style={{ width: `${needs[bar.id]}%` }}
-              />
+            <div className="life-bar" role="img" aria-label={`${bar.name}: ${needs[bar.id]} of 100`}>
+              <span className={level(needs[bar.id])} style={{ width: `${needs[bar.id]}%` }} />
             </div>
           </div>
         ))}
-        <div className='life-mood'>
+        <div className="life-mood">
           Mood: <strong>{needs.mood_name}</strong>
         </div>
       </div>
@@ -124,36 +169,21 @@ export function LifeHud({ life }: { life: Life }) {
 }
 
 /** One thing that can be done with whatever the list is for. */
-function ActionRow({
-  option,
-  busy,
-  onDo,
-}: {
-  option: ActionOption;
-  busy: boolean;
-  onDo: () => void;
-}) {
+function ActionRow({ option, busy, onDo }: { option: ActionOption; busy: boolean; onDo: () => void }) {
   return (
-    <div className='sheet-row'>
-      <div className='life-action'>
+    <div className="sheet-row">
+      <div className="life-action">
         <strong>{option.name}</strong>
-        <div className='life-tags'>
+        <div className="life-tags">
           {option.gives.map((tag) => (
             <span key={tag}>{tag}</span>
           ))}
-          <span className='life-time'>{option.seconds}s</span>
-          {option.cost > 0 && (
-            <span className='life-cost'>{naira(option.cost)}</span>
-          )}
+          <span className="life-time">{option.seconds}s</span>
+          {option.cost > 0 && <span className="life-cost">{naira(option.cost)}</span>}
         </div>
-        {option.blocked && <span className='life-why'>{option.blocked}</span>}
+        {option.blocked && <span className="life-why">{option.blocked}</span>}
       </div>
-      <button
-        type='button'
-        className='primary'
-        onClick={onDo}
-        disabled={busy || option.blocked !== null}
-      >
+      <button type="button" className="primary" onClick={onDo} disabled={busy || option.blocked !== null}>
         Do
       </button>
     </div>
@@ -163,21 +193,15 @@ function ActionRow({
 /** What the thing just finished did: a few words and what went up and down. */
 function Result({ result }: { result: Finished }) {
   return (
-    <div
-      className={`life-result${result.collapsed ? " life-fell" : ""}`}
-      role='status'
-    >
+    <div className={`life-result${result.collapsed ? " life-fell" : ""}`} role="status">
       <strong>{result.name || "Done"}</strong>
       {result.lines.map((line, index) => (
         <p key={index}>{line}</p>
       ))}
       {result.changes.length > 0 && (
-        <div className='life-changes'>
+        <div className="life-changes">
           {result.changes.map((change) => (
-            <span
-              key={change.name}
-              className={change.amount > 0 ? "life-up" : "life-down"}
-            >
+            <span key={change.name} className={change.amount > 0 ? "life-up" : "life-down"}>
               {change.amount > 0 ? "+" : "−"}
               {Math.abs(change.amount)} {change.name}
             </span>
@@ -189,31 +213,20 @@ function Result({ result }: { result: Finished }) {
 }
 
 /** Flat on the floor: what happened, and the button that gets them up once it will work. */
-function PassedOut({
-  wakeAt,
-  busy,
-  onWake,
-}: {
-  wakeAt: number;
-  busy: boolean;
-  onWake: () => void;
-}) {
-  const [left, setLeft] = useState(() =>
-    Math.max(0, Math.ceil((wakeAt - performance.now()) / 1000))
-  );
+function PassedOut({ wakeAt, busy, onWake }: { wakeAt: number; busy: boolean; onWake: () => void }) {
+  const [left, setLeft] = useState(() => Math.max(0, Math.ceil((wakeAt - performance.now()) / 1000)));
   useEffect(() => {
-    const tick = () =>
-      setLeft(Math.max(0, Math.ceil((wakeAt - performance.now()) / 1000)));
+    const tick = () => setLeft(Math.max(0, Math.ceil((wakeAt - performance.now()) / 1000)));
     tick();
     const timer = window.setInterval(tick, 250);
     return () => window.clearInterval(timer);
   }, [wakeAt]);
 
   return (
-    <div className='life-out' role='alert'>
+    <div className="life-out" role="alert">
       <strong>PASSED OUT</strong>
       <p>You danced until there was nothing left. Everybody saw.</p>
-      <button type='button' onClick={onWake} disabled={busy || left > 0}>
+      <button type="button" onClick={onWake} disabled={busy || left > 0}>
         {left > 0 ? `Wake up (${left})` : "Wake up"}
       </button>
     </div>
@@ -240,110 +253,71 @@ export function LifeActions({ homeLife, extra, noButton }: Props) {
   const bar: CSSProperties | undefined = doing
     ? ({
         animationDuration: `${Math.max(0.1, doing.seconds - doing.elapsed)}s`,
-        "--life-from":
-          doing.seconds > 0
-            ? Math.max(0, Math.min(1, doing.elapsed / doing.seconds))
-            : 0,
+        "--life-from": doing.seconds > 0 ? Math.max(0, Math.min(1, doing.elapsed / doing.seconds)) : 0,
       } as CSSProperties)
     : undefined;
-  const label = near
-    ? `${near.verb ?? "Use"} ${
-        near.verb === undefined ? near.name.toLowerCase() : near.name
-      }`.trim()
-    : "";
+  const label = near ? `${near.verb ?? "Use"} ${near.verb === undefined ? near.name.toLowerCase() : near.name}`.trim() : "";
 
   return (
     <>
       <LifeStyles />
-      {error && <div className='life-error'>{error}</div>}
+      {error && <div className="life-error">{error}</div>}
 
       {/* Standing at something usable, with nothing else going on: offer it. */}
       {near && !noButton && !menu && !doing && wakeAt === null && (
-        <div className='crowd-actions'>
-          <button
-            type='button'
-            className='give-in'
-            onClick={() => void homeLife.openMenu()}
-            disabled={busy}
-          >
+        <div className="crowd-actions">
+          <button type="button" className="give-in" onClick={() => void homeLife.openMenu()} disabled={busy}>
             {busy ? "…" : label}
           </button>
         </div>
       )}
 
       {menu && life && (
-        <div className='sheet'>
-          <div className='sheet-card'>
-            <div className='sheet-top'>
+        <div className="sheet">
+          <div className="sheet-card">
+            <div className="sheet-top">
               <div>
                 <h2>{menu.name}</h2>
                 <p>
                   Day {life.clock.day} · {life.clock.block} · {life.clock.text}
                 </p>
               </div>
-              <button
-                type='button'
-                className='ghost'
-                onClick={homeLife.closeMenu}
-              >
+              <button type="button" className="ghost" onClick={homeLife.closeMenu}>
                 Close
               </button>
             </div>
-            {menu.note && <p className='life-note'>{menu.note}</p>}
+            {menu.note && <p className="life-note">{menu.note}</p>}
             {extra}
-            <div className='sheet-rows'>
+            <div className="sheet-rows">
               {menu.actions.map((option) => (
-                <ActionRow
-                  key={option.id}
-                  option={option}
-                  busy={busy}
-                  onDo={() => void homeLife.start(option.id)}
-                />
+                <ActionRow key={option.id} option={option} busy={busy} onDo={() => void homeLife.start(option.id)} />
               ))}
             </div>
-            {menu.actions.length === 0 && (
-              <p className='sheet-small'>
-                There is nothing to do with this yet.
-              </p>
-            )}
-            <p className='sheet-small'>
+            {menu.actions.length === 0 && <p className="sheet-small">There is nothing to do with this yet.</p>}
+            <p className="sheet-small">
               You have {naira(life.money)}
-              {menu.item_id !== null && life.meals > 0
-                ? ` and ${life.meals} portion${
-                    life.meals > 1 ? "s" : ""
-                  } in the pot.`
-                : "."}
+              {menu.item_id !== null && life.meals > 0 ? ` and ${life.meals} portion${life.meals > 1 ? "s" : ""} in the pot.` : "."}
             </p>
           </div>
         </div>
       )}
 
       {doing && (
-        <div className='life-doing' role='status'>
-          <div className='life-doing-top'>
+        <div className="life-doing" role="status">
+          <div className="life-doing-top">
             <strong>{doing.name}…</strong>
-            <button
-              type='button'
-              onClick={() => void homeLife.stop()}
-              disabled={busy}
-            >
+            <button type="button" onClick={() => void homeLife.stop()} disabled={busy}>
               Stop
             </button>
           </div>
-          <div className='life-progress'>
+          <div className="life-progress">
             {/* A new key each time a wait starts, so the bar's animation starts afresh. */}
             <span key={run} style={bar} />
           </div>
         </div>
       )}
 
-      {wakeAt !== null && !doing && (
-        <PassedOut
-          wakeAt={wakeAt}
-          busy={busy}
-          onWake={() => void homeLife.wake()}
-        />
-      )}
+      {wakeAt !== null && !doing && <PassedOut wakeAt={wakeAt} busy={busy} onWake={() => void homeLife.wake()} />}
 
       {result && !doing && !menu && <Result result={result} />}
     </>
