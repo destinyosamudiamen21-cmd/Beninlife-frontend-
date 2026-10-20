@@ -1,6 +1,7 @@
 // The Safety app: report or block anyone, see who is blocked, and read the rules. And,
 // for admins only, the Admin app: the reports that came in, and banning.
 
+import { AdminStats } from "./AdminStats";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   banPlayer, block, closeReport, fetchBlocks, fetchReasons, fetchReports, report, unbanPlayer, unblock,
@@ -172,6 +173,7 @@ export function AdminApp({ onBack }: { onBack: () => void }) {
   const [note, setNote] = useState("");
   const [days, setDays] = useState(3);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<"stats" | "reports">("stats");
 
   const load = () => fetchReports().then((r) => setReports(r.reports)).catch((p: unknown) => setError(words(p, "Could not load the reports.")));
   useEffect(() => {
@@ -195,6 +197,11 @@ export function AdminApp({ onBack }: { onBack: () => void }) {
 
   return (
     <Screen title="Admin" sub={reports ? `${reports.length} open reports` : "Reports"} onBack={onBack}>
+      <div className="ph-chips" role="tablist" aria-label="Admin">
+        <button type="button" role="tab" aria-selected={tab === "stats"} className={tab === "stats" ? "on" : ""} onClick={() => setTab("stats")}>Stats</button>
+        <button type="button" role="tab" aria-selected={tab === "reports"} className={tab === "reports" ? "on" : ""} onClick={() => setTab("reports")}>Reports</button>
+      </div>
+      {tab === "stats" ? <AdminStats /> : <>
       <div className="ph-chips" role="group" aria-label="Ban for">
         {[1, 3, 7, 30, 0].map((d) => (
           <button key={d} type="button" className={days === d ? "on" : ""} onClick={() => setDays(d)}>
@@ -235,6 +242,7 @@ export function AdminApp({ onBack }: { onBack: () => void }) {
         ))}
         {reports && reports.length === 0 && <p className="ph-small" style={{ padding: "10px 12px" }}>No open reports.</p>}
       </div>
+      </>}
     </Screen>
   );
 }

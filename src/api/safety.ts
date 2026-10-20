@@ -54,3 +54,11 @@ export function banPlayer(who: Who, reason: string, days: number): Promise<{ use
 export async function unbanPlayer(who: Who): Promise<void> {
   await request<unknown>(`/admin/unban`, sendJson("POST", who));
 }
+
+export type DayStats = { day: string; players: number; new: number; peak: number };
+export type Stats = { online: number; today: DayStats; average_7: number; days: DayStats[]; accounts: number; players_ever: number };
+
+/** How many people play (admins only). */
+export function fetchStats(): Promise<Stats> {
+  return request<Stats>("/admin/stats");
+}
