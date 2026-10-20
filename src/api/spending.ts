@@ -7,8 +7,15 @@ export type Spending = {
   /** Today's limit. */
   allowance: number;
   left: number;
-  /** Raises bought today. */
+  /** The tier bought today (0: none). */
   level: number;
+  /** There is a tier above: false at the top. */
+  can_raise: boolean;
+  /** Today's free allowance. */
+  free: number;
+  /** A day with a bigger free allowance (the birthday). */
+  special_day: boolean;
+  tiers: Tier[];
   /** What the next raise takes the limit to. */
   next_allowance: number;
   next_price_kobo: number;
@@ -19,6 +26,8 @@ export type Spending = {
   /** Pretend payments, for trying it out (never on the live server). */
   test_payments: boolean;
 };
+
+export type Tier = { number: number; limit: number; price: string; bought: boolean; useful: boolean };
 
 export type RaiseStarted = { reference: string; checkout_url: string | null; price: string };
 export type RaiseResult = { paid: boolean; status: string; spending: Spending };

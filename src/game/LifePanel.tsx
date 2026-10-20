@@ -41,7 +41,8 @@ function LifeStyles() {
       @media (max-width: 480px) { .life-hud { width: 148px; padding: 7px 9px 8px; } .life-need > span:first-child { width: 44px; } }
 
       /* The needs as one thin strip under the name card, out of the way of the street. Tap it for the full card. */
-      .hud-left { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; pointer-events: none; }
+      .hud-left { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; flex: 0 1 auto; pointer-events: none; }
+      .hud-left .hud-card { max-width: 100%; box-sizing: border-box; }   /* a long name or a big balance: the name gives way (…), not the buttons */
       .life-strip { pointer-events: auto; display: flex; align-items: center; gap: 7px; border: none; cursor: pointer;
         background: rgba(255, 255, 255, 0.86); color: #1f2a26; border-radius: 999px; padding: 4px 10px 4px 8px; font: inherit; max-width: 100%; }
       .life-strip-clock { font-size: 11px; font-weight: 700; white-space: nowrap; color: #4c5651; }

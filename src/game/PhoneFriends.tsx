@@ -13,6 +13,8 @@ type Props = {
   arrivals: number;
   /** Open the conversation with one of them. */
   onMessage: (id: string) => void;
+  /** Find a friend who is in the game: the phone goes away and the map opens on them. */
+  onFind: (id: string) => void;
   onBack: () => void;
 };
 
@@ -24,10 +26,10 @@ function standing(contact: Contact): string {
 
 /**
  * The contacts in the phone. Saving somebody needs nobody's leave. When two players have
- * saved each other they are friends: each can see when the other is in the game, and
- * which part of town they are in (never the exact spot).
+ * saved each other they are friends: each can see when the other is in the game and where,
+ * and find them on the map (contact_service.friend_destinations). Nobody else can.
  */
-export function FriendsApp({ playerId, nearby, arrivals, onMessage, onBack }: Props) {
+export function FriendsApp({ playerId, nearby, arrivals, onMessage, onFind, onBack }: Props) {
   const [book, setBook] = useState<Contacts | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -122,7 +124,13 @@ export function FriendsApp({ playerId, nearby, arrivals, onMessage, onBack }: Pr
             <Face name={contact.username} online={contact.online} />
             <div className="ph-lines">
               <strong>@{contact.username}</strong>
-              <span>{standing(contact)}</span>
+              {contact.friend && contact.online ? (
+                <button type="button" className="ph-find" onClick={() => onFind(contact.id)} aria-label={`Find @${contact.username} on the map`}>
+                  📍 {contact.where} · Find
+                </button>
+              ) : (
+                <span>{standing(contact)}</span>
+              )}
             </div>
             {contact.friend && contact.online && (
               crew.has(contact.id) ? (
@@ -152,7 +160,7 @@ export function FriendsApp({ playerId, nearby, arrivals, onMessage, onBack }: Pr
       </div>
       {book && book.contacts.length === 0 && <p className="ph-small">Nobody saved yet. Type a username above, or save someone standing near you.</p>}
       <p className="ph-small">
-        When two of you have saved each other you are friends. Friends can see when the other is in the game, and which part of town they are in. Press Roll to invite a friend to move about with you: they come to where you are, and when one of you takes a ride, the others standing with you ride along.
+        When two of you have saved each other you are friends. Friends can see when the other is in the game and where: press Find to see them on the map and get a ride to them. Press Roll to invite a friend to move about with you: they come to where you are, and when one of you takes a ride, the others standing with you ride along.
       </p>
     </Screen>
   );

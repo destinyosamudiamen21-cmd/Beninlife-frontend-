@@ -1,13 +1,8 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
-import {
-  forgotPassword,
-  register,
-  resetPassword,
-  signIn,
-  signOut,
-  whoAmI,
-} from "./api/auth";
+import { forgotPassword, register, resetPassword, signIn, signOut, whoAmI } from "./api/auth";
 import type { Player } from "./api/players";
+import { canDraw3D, inAppBrowser } from "./game/browserCheck";
+import { CannotRun, GameGuard, OpenElsewhere } from "./game/OpenElsewhere";
 
 // The game (three.js, cars, venues) is most of the download. Load it only once someone has
 // signed in, so the sign-in page opens fast on a phone.
@@ -24,11 +19,7 @@ function takeResetToken(): string | null {
     const token = url.searchParams.get("reset");
     if (!token) return null;
     url.searchParams.delete("reset");
-    window.history.replaceState(
-      null,
-      "",
-      url.pathname + (url.search ? url.search : "") + url.hash
-    );
+    window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
     return token;
   } catch {
     return null;
@@ -77,11 +68,13 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  if (player && !canDraw3D()) {
+    return <CannotRun why="This browser cannot draw the city (it has no 3D). Beninlife needs Safari or Chrome." />;
+  }
   if (player) {
     return (
-      <Suspense
-        fallback={<div className='gate-loading'>Loading Benin City…</div>}
-      >
+      <GameGuard>
+      <Suspense fallback={<div className="gate-loading">Loading Benin City…</div>}>
         <Game
           player={player}
           admin={admin}
@@ -90,6 +83,7 @@ export default function App() {
           }}
         />
       </Suspense>
+      </GameGuard>
     );
   }
 
@@ -106,11 +100,7 @@ export default function App() {
       try {
         setInfo(await forgotPassword(email.trim()));
       } catch (problem) {
-        setError(
-          problem instanceof Error
-            ? problem.message
-            : "Could not send the link."
-        );
+        setError(problem instanceof Error ? problem.message : "Could not send the link.");
       } finally {
         setLoading(false);
       }
@@ -127,11 +117,7 @@ export default function App() {
         setAdmin(Boolean(signed.admin));
         setPlayer(signed.player);
       } catch (problem) {
-        setError(
-          problem instanceof Error
-            ? problem.message
-            : "Could not change the password."
-        );
+        setError(problem instanceof Error ? problem.message : "Could not change the password.");
       } finally {
         setLoading(false);
       }
@@ -155,16 +141,11 @@ export default function App() {
     }
     setLoading(true);
     try {
-      const signed =
-        mode === "register"
-          ? await register(email.trim(), password, username.trim(), agree)
-          : await signIn(email.trim(), password);
+      const signed = mode === "register" ? await register(email.trim(), password, username.trim(), agree) : await signIn(email.trim(), password);
       setAdmin(Boolean(signed.admin));
       setPlayer(signed.player);
     } catch (problem) {
-      setError(
-        problem instanceof Error ? problem.message : "Could not sign in."
-      );
+      setError(problem instanceof Error ? problem.message : "Could not sign in.");
     } finally {
       setLoading(false);
     }
@@ -177,7 +158,7 @@ export default function App() {
   };
 
   return (
-    <div className='gate'>
+    <div className="gate">
       <style>{`
         .gate { position: fixed; inset: 0; overflow-y: auto; display: grid; place-items: center; padding: 24px 16px 140px; color: #fff;
           font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
@@ -218,205 +199,128 @@ export default function App() {
       `}</style>
 
       {/* Benin at dusk: rooftops, the flyover on its pillars, and a keke going home. */}
-      <svg
-        className='gate-skyline'
-        viewBox='0 0 1200 170'
-        preserveAspectRatio='xMidYMax slice'
-        aria-hidden='true'
-      >
+      <svg className="gate-skyline" viewBox="0 0 1200 170" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
         <path
-          fill='#1a0b24'
-          d='M0 170V112h40V96h36v20h30V84h44v30h26V70h50v44h22V98h40v16h30V58h60v56h20V90h44v24h36V76h40v38h30V100h46v14h40V64h56v50h24V92h40v22h30V80h52v34h26V104h40v10h44V72h50v42h30V96h42v74z'
+          fill="#1a0b24"
+          d="M0 170V112h40V96h36v20h30V84h44v30h26V70h50v44h22V98h40v16h30V58h60v56h20V90h44v24h36V76h40v38h30V100h46v14h40V64h56v50h24V92h40v22h30V80h52v34h26V104h40v10h44V72h50v42h30V96h42v74z"
         />
-        <g fill='#24102f'>
-          <rect x='0' y='128' width='1200' height='9' />
+        <g fill="#24102f">
+          <rect x="0" y="128" width="1200" height="9" />
           {[120, 330, 540, 750, 960].map((x) => (
-            <rect key={x} x={x} y='137' width='14' height='33' />
+            <rect key={x} x={x} y="137" width="14" height="33" />
           ))}
         </g>
-        <g fill='#f5c400' opacity='0.85'>
+        <g fill="#f5c400" opacity="0.85">
           {[60, 180, 300, 420, 540, 660, 780, 900, 1020, 1140].map((x) => (
-            <rect key={x} x={x} y='122' width='3' height='6' />
+            <rect key={x} x={x} y="122" width="3" height="6" />
           ))}
         </g>
-        <g className='gate-keke'>
-          <path fill='#f5c400' d='M8 118c0-10 8-18 18-18h22l16 14v10H8z' />
-          <rect x='8' y='118' width='56' height='8' fill='#c8102e' />
-          <circle cx='18' cy='128' r='5' fill='#0e0612' />
-          <circle cx='54' cy='128' r='5' fill='#0e0612' />
-          <rect x='40' y='104' width='10' height='9' fill='#1a0b24' />
+        <g className="gate-keke">
+          <path fill="#f5c400" d="M8 118c0-10 8-18 18-18h22l16 14v10H8z" />
+          <rect x="8" y="118" width="56" height="8" fill="#c8102e" />
+          <circle cx="18" cy="128" r="5" fill="#0e0612" />
+          <circle cx="54" cy="128" r="5" fill="#0e0612" />
+          <rect x="40" y="104" width="10" height="9" fill="#1a0b24" />
         </g>
       </svg>
 
-      <form className='gate-card' onSubmit={submit}>
-        <div className='gate-title'>
+      <form className="gate-card" onSubmit={submit}>
+        <div className="gate-title">
           <h1>
             Benin<span>life</span>
-            <small className='gate-beta'>BETA</small>
+            <small className="gate-beta">BETA</small>
           </h1>
           <p>Live it in Benin City, with your people.</p>
         </div>
-        <div className='gate-panel'>
+        {inAppBrowser() && (
+          <OpenElsewhere compact why={`You're in ${inAppBrowser()}'s browser: the game may not load or keep you signed in here.`} />
+        )}
+        <div className="gate-panel">
           {(mode === "forgot" || mode === "reset") && (
-            <p style={{ fontWeight: 700, fontSize: 17 }}>
-              {mode === "forgot"
-                ? "Forgot your password?"
-                : "Choose a new password"}
-            </p>
+            <p style={{ fontWeight: 700, fontSize: 17 }}>{mode === "forgot" ? "Forgot your password?" : "Choose a new password"}</p>
           )}
-          {mode === "forgot" && (
-            <p className='gate-small' style={{ textAlign: "left" }}>
-              Type the email you signed up with. We'll send a link to choose a
-              new password.
-            </p>
-          )}
-          {(mode === "signin" || mode === "register") && (
-            <div
-              className='gate-tabs'
-              role='group'
-              aria-label='Sign in or make an account'
-            >
-              <button
-                type='button'
-                aria-pressed={mode === "signin"}
-                onClick={() => switchTo("signin")}
-              >
-                Sign in
-              </button>
-              <button
-                type='button'
-                aria-pressed={mode === "register"}
-                onClick={() => switchTo("register")}
-              >
-                Create account
-              </button>
-            </div>
-          )}
+          {mode === "forgot" && <p className="gate-small" style={{ textAlign: "left" }}>Type the email you signed up with. We'll send a link to choose a new password.</p>}
+          {(mode === "signin" || mode === "register") && <div className="gate-tabs" role="group" aria-label="Sign in or make an account">
+            <button type="button" aria-pressed={mode === "signin"} onClick={() => switchTo("signin")}>
+              Sign in
+            </button>
+            <button type="button" aria-pressed={mode === "register"} onClick={() => switchTo("register")}>
+              Create account
+            </button>
+          </div>}
           {mode === "register" && (
             <label>
               Username
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder='what the city calls you'
-                maxLength={20}
-                autoCapitalize='none'
-                autoComplete='username'
-              />
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="what the city calls you" maxLength={20} autoCapitalize="none" autoComplete="username" />
             </label>
           )}
           {mode !== "reset" && (
             <label>
               Email
-              <input
-                type='email'
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder='you@example.com'
-                autoComplete='email'
-                autoCapitalize='none'
-              />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" autoCapitalize="none" />
             </label>
           )}
-          {mode !== "forgot" && (
-            <label>
-              {mode === "reset" ? "New password" : "Password"}
-              <input
-                type='password'
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={
-                  mode === "signin" ? "your password" : "at least 8 characters"
-                }
-                autoComplete={
-                  mode === "signin" ? "current-password" : "new-password"
-                }
-              />
-            </label>
-          )}
+          {mode !== "forgot" && <label>
+            {mode === "reset" ? "New password" : "Password"}
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={mode === "signin" ? "your password" : "at least 8 characters"}
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+            />
+          </label>}
           {mode === "register" && (
-            <label className='gate-agree'>
-              <input
-                type='checkbox'
-                checked={agree}
-                onChange={(e) => setAgree(e.target.checked)}
-              />
+            <label className="gate-agree">
+              <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
               <span>
-                I'm 13 or older (if I'm under 18, my parent or guardian agrees),
-                and I accept the{" "}
-                <a href='/terms.html' target='_blank' rel='noreferrer'>
-                  Terms
-                </a>{" "}
-                and the{" "}
-                <a href='/privacy.html' target='_blank' rel='noreferrer'>
-                  Privacy Policy
-                </a>
-                .
+                I'm 13 or older (if I'm under 18, my parent or guardian agrees), and I accept the{" "}
+                <a href="/terms.html" target="_blank" rel="noreferrer">Terms</a> and the{" "}
+                <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>.
               </span>
             </label>
           )}
           {info && (
-            <p className='gate-info' role='status'>
+            <p className="gate-info" role="status">
               {info}
             </p>
           )}
           {error && (
-            <p className='gate-error' role='alert'>
+            <p className="gate-error" role="alert">
               {error}
             </p>
           )}
-          <button
-            type='submit'
-            className='gate-go'
-            disabled={loading || checking}
-          >
+          <button type="submit" className="gate-go" disabled={loading || checking}>
             {checking
               ? "One moment…"
               : loading
-              ? mode === "register"
-                ? "Making your account…"
-                : mode === "forgot"
-                ? "Sending…"
-                : "Signing in…"
-              : mode === "register"
-              ? "Create account"
-              : mode === "forgot"
-              ? "Send me a link"
-              : mode === "reset"
-              ? "Save and enter the city"
-              : "Enter the city"}
+                ? mode === "register" ? "Making your account…" : mode === "forgot" ? "Sending…" : "Signing in…"
+                : mode === "register" ? "Create account" : mode === "forgot" ? "Send me a link" : mode === "reset" ? "Save and enter the city" : "Enter the city"}
           </button>
         </div>
-        <p className='gate-small'>
+        <p className="gate-small">
           {mode === "signin" ? (
             <>
               New here?{" "}
-              <button type='button' onClick={() => switchTo("register")}>
+              <button type="button" onClick={() => switchTo("register")}>
                 Create an account
               </button>
               {" · "}
-              <button type='button' onClick={() => switchTo("forgot")}>
+              <button type="button" onClick={() => switchTo("forgot")}>
                 Forgot password?
               </button>
             </>
           ) : (
             <>
               Have an account?{" "}
-              <button type='button' onClick={() => switchTo("signin")}>
+              <button type="button" onClick={() => switchTo("signin")}>
                 Sign in
               </button>
             </>
           )}
         </p>
-        <p className='gate-legal'>
-          <a href='/terms.html' target='_blank' rel='noreferrer'>
-            Terms
-          </a>{" "}
-          ·{" "}
-          <a href='/privacy.html' target='_blank' rel='noreferrer'>
-            Privacy
-          </a>{" "}
-          · Beninlife is in beta: things will change.
+        <p className="gate-legal">
+          <a href="/terms.html" target="_blank" rel="noreferrer">Terms</a> · <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy</a> · Beninlife is in beta: things will change.
         </p>
       </form>
     </div>

@@ -311,3 +311,6 @@ button:disabled { opacity: 0.55; cursor: default; }
 /* Shown while the game downloads after sign-in. */
 .gate-loading { position: fixed; inset: 0; display: grid; place-items: center;
   background: #1c1512; color: #e2b657; font: 800 18px/1.2 system-ui, sans-serif; }
+
+/* The money on the top card is a button: today's spending limit. */
+.hud-money { border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted rgba(0, 0, 0, 0.3); text-underline-offset: 3px; }

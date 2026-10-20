@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { checkRaise, fetchSpending, pretendToPay, startRaise, type Spending } from "../api/spending";
 
 const naira = (amount: number) => `₦${amount.toLocaleString()}`;
+/** ₦500k, ₦5m, ₦5bn: a tier's limit in a small box. */
+const short = (amount: number) =>
+  amount >= 1e9 ? `₦${+(amount / 1e9).toFixed(1)}bn` : amount >= 1e6 ? `₦${+(amount / 1e6).toFixed(1)}m` : amount >= 1e3 ? `₦${Math.round(amount / 1e3)}k` : naira(amount);
 const CHECK_EVERY = 4000;      // ms between asking whether the payment has gone through
 const CHECK_FOR = 3 * 60_000;  // ... for this long after the checkout opened
 
@@ -111,6 +114,16 @@ export function LimitSheet({ playerId, reason, onClose, onRaised }: Props) {
         .limit-offer strong { font-size: 17px; }
         .limit-offer button.primary { align-self: stretch; background: #ffd23f; color: #1c1420; border: 0; border-radius: 12px; padding: 12px; font-weight: 900; font-size: 15px; }
         .limit-small { font-size: 11px; color: #8a8077; margin-top: 10px; line-height: 1.4; }
+        .limit-tiers { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .limit-tiers li { border-radius: 12px; padding: 8px 6px; background: #f3ede3; text-align: center; display: flex; flex-direction: column; gap: 2px; }
+        .limit-tiers li span { font-size: 11px; color: #6b6259; }
+        .limit-tiers li b { font-size: 14px; }
+        .limit-tiers li i { font-style: normal; font-size: 12px; font-weight: 700; color: #1c1420; }
+        .limit-tiers li.bought { background: #e8fff0; }
+        .limit-tiers li.bought i { color: #1f6b3a; }
+        .limit-tiers li.next { outline: 2px solid #ffd23f; }
+        .limit-tiers li.past { opacity: 0.45; }
+        .limit-party { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #fff4d6; font-weight: 700; font-size: 13px; }
         .limit-done { background: #e8fff0; border-radius: 12px; padding: 10px 12px; margin-top: 10px; font-weight: 700; color: #1f6b3a; }
       `}</style>
       <div className="sheet-card">
@@ -128,8 +141,23 @@ export function LimitSheet({ playerId, reason, onClose, onRaised }: Props) {
               <span>Spent today {naira(spending.spent)}</span>
               <span>Limit {naira(spending.allowance)}</span>
             </div>
+            {spending.special_day && (
+              <div className="limit-party">🎂 Birthday special: everyone can spend {naira(spending.free)} free today.</div>
+            )}
+            <ul className="limit-tiers" aria-label="The tiers">
+              {spending.tiers.map((tier) => (
+                <li key={tier.number}
+                  className={tier.bought ? "bought" : !tier.useful ? "past" : spending.can_raise && tier.limit === spending.next_allowance ? "next" : ""}>
+                  <span>Tier {tier.number}</span>
+                  <b>{short(tier.limit)}</b>
+                  <i>{tier.bought ? "Yours today" : tier.price}</i>
+                </li>
+              ))}
+            </ul>
             {done ? (
               <div className="limit-done" role="status">Done. Your limit today is now {naira(done.allowance)}.</div>
+            ) : !spending.can_raise ? (
+              <div className="limit-done" role="status">You have the highest limit today. It starts again at midnight.</div>
             ) : (
               <div className="limit-offer">
                 <span>Raise today's limit to</span>
@@ -155,8 +183,8 @@ export function LimitSheet({ playerId, reason, onClose, onRaised }: Props) {
         )}
         {error && <p className="life-why" role="alert">{error}</p>}
         <p className="limit-small">
-          This is real money, charged by Paystack in naira. Each raise today costs a little more than the last; the limit and the
-          prices start again at midnight. Game money cannot be turned back into real money. Under 18? Ask a parent or guardian first.
+          This is real money, charged by Paystack in naira. Everyone gets {spending ? naira(spending.free) : "some"} a day free; each tier
+          above it is bought once for the day, one after the other, and everything starts again at midnight. Game money cannot be turned back into real money. Under 18? Ask a parent or guardian first.
         </p>
       </div>
     </div>

@@ -238,6 +238,7 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
         .ph-mini { border: none; border-radius: 999px; background: #007aff; color: #fff; font-weight: 600; font-size: 13.5px; padding: 7px 13px; white-space: nowrap; flex-shrink: 0; }
         .ph-mini.plain { background: rgba(118, 118, 128, 0.12); color: #007aff; }
         .ph-mini.done { background: rgba(52, 199, 89, 0.15); color: #248a3d; }
+        .ph-find { border: none; background: none; padding: 0; color: #007aff; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
         .ph-top .ph-mini { background: rgba(0, 122, 255, 0.12); color: #007aff; }
         .ph-go { border: none; border-radius: 12px; background: #007aff; color: #fff; font-weight: 600; font-size: 16px; padding: 12px 16px; flex: 1; }
         .ph-go:disabled, .ph-mini:disabled { opacity: 0.45; }
@@ -400,6 +401,7 @@ export function Phone({ playerId, username, student, nearby, arrivals, money, li
         )}
         {app === "friends" && (
           <FriendsApp
+            onFind={(id) => onShow(`friend:${id}`)}
             playerId={playerId}
             nearby={nearby}
             arrivals={arrivals}

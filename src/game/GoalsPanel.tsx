@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { claimGoal, type Goal, type Goals } from "../api/goals";
-import { claimMission, type Mission, type Missions } from "../api/missions";
+import { claimMission, fetchMissions, type Mission, type Missions } from "../api/missions";
 
 const naira = (amount: number) => `₦${amount.toLocaleString()}`;
 
@@ -42,6 +42,22 @@ export function GoalsPanel({ playerId, goals, onGoals, missions, onMissions, onS
   const [error, setError] = useState("");
   const [, tick] = useState(0);
   const [opened] = useState(() => performance.now());
+  // Missions are read by the game in the background; if they are not there yet, read them here,
+  // and say so when that fails, with a way to try again, rather than "Loading" for ever.
+  const [missionsError, setMissionsError] = useState("");
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (missions) return;
+    let stop = false;
+    setMissionsError("");
+    fetchMissions(playerId)
+      .then((now) => { if (!stop) onMissions(now); })
+      .catch((problem: unknown) => {
+        if (!stop) setMissionsError(problem instanceof Error ? problem.message : "The server did not answer.");
+      });
+    return () => { stop = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerId, tries, missions === null]);
 
   // The countdowns move while the panel is open.
   useEffect(() => {
@@ -200,7 +216,13 @@ export function GoalsPanel({ playerId, goals, onGoals, missions, onMissions, onS
             Daily &amp; weekly{goals && [...goals.daily, ...goals.weekly].some((g) => g.done && !g.claimed) && <i>{[...goals.daily, ...goals.weekly].filter((g) => g.done && !g.claimed).length}</i>}
           </button>
         </div>
-        {tab === "missions" && !missions && <p>Loading…</p>}
+        {tab === "missions" && !missions && !missionsError && <p>Loading…</p>}
+        {tab === "missions" && !missions && missionsError && (
+          <div className="missions-error">
+            <p>Could not load the missions ({missionsError}).</p>
+            <button type="button" className="mission-take" onClick={() => setTries((n) => n + 1)}>Try again</button>
+          </div>
+        )}
         {tab === "missions" && missions && (
           <>
             <div className="mission-chapters">

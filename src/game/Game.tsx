@@ -38,6 +38,7 @@ import { PALM_COURT_SOLIDS } from "./palmCourtShapes";
 import { fetchAddress, fetchEstates, HOME_PLACE, type Address, type HousePlot } from "../api/estates";
 import { fetchGoals, readyCount, type Goals } from "../api/goals";
 import { fetchMissions, missionsReady, type Missions } from "../api/missions";
+import { openGifts } from "../api/gifts";
 import { ClubScene } from "./ClubScene";
 import { Compass } from "./Compass";
 import { CrewBar } from "./CrewBar";
@@ -750,7 +751,8 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       return;
     }
     const metres = Math.hypot(playerFocus.x - place.x, playerFocus.z - place.z);
-    if (district.id === place.district && (place.here || metres < HOME_REACH)) {
+    // The server says they are at the door (place.here): in, even if this district is still loading after a ride.
+    if (place.here || (district.id === place.district && metres < HOME_REACH)) {
       void goHome({ x: place.x, z: place.z });
       return;
     }
@@ -1640,6 +1642,15 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     }
   };
 
+  // A friend picked from the phone who is not on the map (riding, busy, just left): say so.
+  useEffect(() => {
+    if (!city || !pickedPlace?.startsWith("friend:")) return;
+    if (!city.places.some((place) => place.id === pickedPlace)) {
+      setPickedPlace(null);
+      flash("Your friend is on the move right now (riding or busy). Try Find again in a moment.");
+    }
+  }, [city, pickedPlace, flash]);
+
   const closeMap = () => {
     setMapOpen(false);
     setPickedPlace(null);
@@ -1945,6 +1956,21 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
 
   // Goals: looked at now and then, and when the panel opens. A goal newly finished is said out loud.
   const storyDone = story?.done === true;
+  // Gifts from the game (the birthday billion): opened once the player is in, said out loud.
+  useEffect(() => {
+    if (!storyDone) return;
+    let stop = false;
+    openGifts(player.id)
+      .then((gifts) => {
+        if (stop || gifts.news.length === 0) return;
+        setMoney(gifts.money);
+        shout(gifts.news.join(" "));
+      })
+      .catch(() => {});
+    return () => {
+      stop = true;
+    };
+  }, [player.id, storyDone, shout]);
   useEffect(() => {
     if (!storyDone) return;
     let stop = false;
@@ -2306,7 +2332,12 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
                 </button>
                 @{player.username} <small className="hud-beta" title="Beninlife is in beta: things will change, and some things may break.">BETA</small>
               </strong>
-              <span>₦{money.toLocaleString()}</span>
+              <span>
+                {/* Tap the money: today's spending limit, and raising it. */}
+                <button type="button" className="hud-money" onClick={() => setLimitReason("")} aria-label={`₦${money.toLocaleString()}: today's spending limit`}>
+                  ₦{money.toLocaleString()}
+                </button>
+              </span>
               <span className={connected ? "online" : "offline"}>
                 {connected ? `${remotes.length + 1} online` : "Connecting…"}
               </span>
