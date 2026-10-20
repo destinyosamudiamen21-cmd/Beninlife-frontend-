@@ -22,4 +22,4 @@ export const playerDrag = { factor: 1 };
  * How far the camera is swung round the player right now, in radians. LocalPlayer writes
  * it; the crowd reads it to know which strip of ground lies between the player and the camera.
  */
-export const cameraView = { yaw: 0 };
+export const cameraView = { yaw: 0, x: 0, y: 0, z: 0 };   // which way it looks, and where it is

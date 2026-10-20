@@ -93,3 +93,10 @@ export function fetchCity(playerId: string): Promise<City> {
 export function goTo(playerId: string, place: string, mode: RideMode): Promise<Going> {
   return request<Going>(`/players/${playerId}/city/go`, sendJson("POST", { place, mode }));
 }
+
+export type Unstuck = { district: string; x: number; z: number; message: string };
+
+/** Stuck somewhere on the street: the server puts the player at the district's bus stop. */
+export function unstick(playerId: string): Promise<Unstuck> {
+  return request<Unstuck>(`/players/${playerId}/unstick`, { method: "POST" });
+}

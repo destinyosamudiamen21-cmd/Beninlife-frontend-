@@ -282,6 +282,7 @@ const HELP: [string, string][] = [
   ["Looking round", "Pinch to zoom and twist two fingers to swing the camera right round you. On a computer: scroll to zoom, drag with the right button or press Q and E to turn. The compass turns you back to north."],
   ["Getting about", "Open the Map and press a place. Trekking is free and an arrow shows the way. The bus is cheapest but stops at the bus stop. A keke, a bike or a cab takes you to the door."],
   ["Talking", "The bar at the bottom of the street says it out loud to whoever is near. The microphone beside it is your voice, for whoever is standing with you."],
+  ["Stuck?", "If you push and go nowhere for a few seconds, a Get me out button comes up: it puts you at your area's bus stop. Not in a car, and not with the police on you."],
   ["Missions", "Press Missions at the top of the street. Each one says what to do and who wants it done; Show me opens the map on the place. Finish every step and press Collect for the money. Daily and weekly goals are on the other tab."],
   ["Jobs", "Open the Jobs app. Oba Trust Bank and Edo Tech Hub on Boundary Road, GRA, hire at reception in office hours: have a bath first. Work shifts at your desk to get promoted and paid more. The app lists every other way to earn too."],
   ["Messages", "A text reaches anyone, wherever they are. Each one takes a little data."],

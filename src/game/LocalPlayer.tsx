@@ -78,6 +78,13 @@ export type Driving = {
 
 // No brake: at a standstill the brake pedal means reverse.
 const HELD = { gas: 0, brake: 0, steer: 0, horn: false };
+// The camera behind the player keeps in front of walls: it is probed out from the player in
+// steps this long, as a ball this wide.
+const CAMERA_PROBE_STEP = 0.4;
+const CAMERA_PROBE_RADIUS = 0.25;
+const CAMERA_NEAREST = 1.6;   // closer than this to the player, the camera rises ...
+const CAMERA_RISE = 1.4;       // ... this many metres for every metre short
+const cameraProbe = { x: 0, z: 0 };
 const HOLD_BRAKING = 14;   // m/s², a firm stop: 60 km/h to nothing in about a second and a quarter
 
 // Scratch vectors, reused every frame so the render loop allocates nothing.
@@ -100,6 +107,8 @@ type Props = {
   customising: boolean;
   /** Knows where the walls, trees and the edge of the district are. */
   collider: Ground;
+  /** On the street: the buildings and stalls (not the traffic) the camera keeps in front of. */
+  cameraBlockers?: Collider | null;
   /** What the player's body is doing besides walking: in a fight, on the dance floor, passed out. */
   fight?: FightPose | null;
   /** Set while the player is stood somewhere and cannot walk: in the ring, at the bag, on the dance floor. */
@@ -147,7 +156,7 @@ function shortestAngle(from: number, to: number): number {
 }
 
 export function LocalPlayer({
-  start, sendMove, takeServerPosition, look, customising, collider, fight, hold, said = "", out = false, spraying = false, orbit = false, frozen = false,
+  start, sendMove, takeServerPosition, look, customising, collider, cameraBlockers = null, fight, hold, said = "", out = false, spraying = false, orbit = false, frozen = false,
   driving = null, riding = null, ridingLook = "", view = "third", room = null,
 }: Props) {
   const bodyRef = useRef<Group>(null);
@@ -484,6 +493,35 @@ export function LocalPlayer({
       const back = CAMERA_DISTANCE * zoom;
       cameraGoal.set(x + sin * back, y + CAMERA_LOOK_HEIGHT + lift, z + cos * back);
       lookGoal.set(x, y + CAMERA_LOOK_HEIGHT, z);
+      if (!room && !playerStreet.up && cameraBlockers) {
+        // Outside: a building (or a stall) between the player and the camera would fill the
+        // screen. Walk out from the player towards where the camera wants to be, a short step at
+        // a time, and stop just short of the first solid thing: the camera sits in front of it.
+        const reach = Math.hypot(cameraGoal.x - x, cameraGoal.z - z);
+        if (reach > 0.5) {
+          const steps = Math.ceil(reach / CAMERA_PROBE_STEP);
+          let lastX = x, lastZ = z, blockedAt = -1;
+          for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            const px = x + (cameraGoal.x - x) * t, pz = z + (cameraGoal.z - z) * t;
+            if (cameraBlockers.resolve(lastX, lastZ, px, pz, cameraProbe, CAMERA_PROBE_RADIUS) &&
+                Math.hypot(cameraProbe.x - px, cameraProbe.z - pz) > 0.05) {
+              blockedAt = (i - 1) / steps;
+              break;
+            }
+            lastX = px;
+            lastZ = pz;
+          }
+          if (blockedAt >= 0) {
+            // In front of the wall, always. With little room there, it rises instead and
+            // looks down over the player's shoulder.
+            cameraGoal.x = x + (cameraGoal.x - x) * blockedAt;
+            cameraGoal.z = z + (cameraGoal.z - z) * blockedAt;
+            const short = CAMERA_NEAREST - blockedAt * reach;
+            if (short > 0) cameraGoal.y += short * CAMERA_RISE;
+          }
+        }
+      }
       if (room) {
         // Swung round indoors, the camera stays inside the walls and under the ceiling, so
         // the player can look round the room instead of at the back of a wall. Out past the
@@ -506,6 +544,9 @@ export function LocalPlayer({
       cameraReady.current = true;
     }
     if (!frozen) camera.lookAt(lookNow);
+    cameraView.x = camera.position.x;
+    cameraView.y = camera.position.y;
+    cameraView.z = camera.position.z;
 
     // 5. Tell the server, 10 times a second, moving or not.
     sendTimer.current += dt;

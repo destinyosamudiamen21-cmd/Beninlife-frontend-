@@ -20,7 +20,7 @@ import { fetchWallet } from "../api/phone";
 import { fetchPatrols, fetchStop, getStopped, type Checkpoint, type PatrolRoute, type PoliceStop } from "../api/police";
 import type { HotCar, Stolen } from "../api/crime";
 import { fetchStory, tellStory, type StoryResult, type StoryState } from "../api/story";
-import { fetchCity, goTo, type City, type CityPlace, type Going, type RideOption } from "../api/travel";
+import { fetchCity, goTo, type City, type CityPlace, type Going, type RideOption, unstick } from "../api/travel";
 import { ArenaScene } from "./ArenaScene";
 import { BusRide3D } from "./BusRide3D";
 import { BusRide, type RideKind } from "./BusRide";
@@ -83,7 +83,7 @@ import { loadDistrict, type DistrictData, type Door } from "./districtData";
 import { cameraView, playerFocus } from "./focus";
 import { buildWalkways, walkwayHeight, withFootbridges } from "./footbridge";
 import { doorSpot, homeCollider, type FloorChange } from "./homeLayout";
-import { CAMERA_FOV, cameraInput, creatorInput, faceNorth, switchView, type View } from "./input";
+import { CAMERA_FOV, cameraInput, creatorInput, faceNorth, switchView, type View, readMove } from "./input";
 import { holdAt, type Near } from "./nearby";
 import { createCrowd, holder, sendAway, setHour, shakeOff, type Seller } from "./npcs";
 import { HauntSound } from "./hauntSound";
@@ -641,6 +641,23 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     setSpawn((current) => ({ x, z, key: current.key + 1 }));
   }, []);
 
+  // Stuck: pushing the stick for a while and going nowhere (wedged by a stall, a corner the map
+  // should not have) brings up "Get me out", which puts them at the district's bus stop.
+  const [stuck, setStuck] = useState(false);
+  const stuckRef = useRef({ pushing: 0, x: 0, z: 0 });
+  const freeMe = async () => {
+    try {
+      const out = await unstick(player.id);
+      appearAt(out.x, out.z);
+      setStuck(false);
+      stuckRef.current.pushing = 0;
+      flash(out.message);
+    } catch (error) {
+      setStuck(false);
+      flash(error instanceof Error ? error.message : "Could not move you. Try again in a moment.");
+    }
+  };
+
   // The fight club: its state, and the order things happen in a fight.
   const placeInGym = useCallback((spot: { x: number; z: number }) => appearAt(spot.x, spot.z), [appearAt]);
   const arena = useFightClub(player.id, { onMoney: setMoney, onPlace: placeInGym, ringside: RINGSIDE });
@@ -1062,6 +1079,35 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       setJobBusy(false);
     }
   };
+
+  // Watching for stuck: the stick pushed hard and the player not getting anywhere.
+  useEffect(() => {
+    if (driving || scene.kind !== "street") {
+      setStuck(false);
+      return;
+    }
+    const EVERY = 400;          // ms between looks
+    const STUCK_AFTER = 2.8;    // seconds of pushing and going nowhere
+    const timer = window.setInterval(() => {
+      const watch = stuckRef.current;
+      if (watch.pushing < 0) {
+        watch.pushing = Math.min(0, watch.pushing + EVERY / 1000);   // told "not stuck": quiet for a few seconds
+        return;
+      }
+      const push = readMove();
+      const moved = Math.hypot(playerFocus.x - watch.x, playerFocus.z - watch.z);
+      watch.x = playerFocus.x;
+      watch.z = playerFocus.z;
+      if (Math.hypot(push.x, push.z) > 0.5 && moved < 0.12) {
+        watch.pushing += EVERY / 1000;
+        if (watch.pushing >= STUCK_AFTER) setStuck(true);
+      } else if (moved > 0.5) {
+        watch.pushing = 0;   // moving freely again
+        setStuck(false);
+      }
+    }, EVERY);
+    return () => window.clearInterval(timer);
+  }, [driving, scene.kind]);
 
   // Standing by their own car: the "Get in" button shows.
   useEffect(() => {
@@ -2006,7 +2052,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     const timer = window.setInterval(() => {
       look();
       lookMissions();
-    }, goalsOpen ? 10_000 : 30_000);
+    }, goalsOpen ? 10_000 : 60_000);   // closed: once a minute is plenty, and spares the database
     return () => {
       stop = true;
       window.clearInterval(timer);
@@ -2213,6 +2259,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
               look={draft ?? look}
               customising={customising}
               collider={collider}
+              cameraBlockers={scene.kind === "street" ? streetCollider : null}
               fight={scene.kind === "arena" ? arena.you : crime.fighting ? crime.me : posing ? homeLife.pose : null}
               hold={crime.hold ?? policeHold ?? hold}
               said={said[player.id] ?? ""}
@@ -2790,6 +2837,13 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       )}
       <ScareOverlay scare={scare} />
       {chaseUntil !== null && <ChaseHud until={chaseUntil} />}
+      {stuck && !driving && scene.kind === "street" && (
+        <div className="stuck-chip" role="status">
+          <span>Stuck?</span>
+          <button type="button" onClick={() => void freeMe()}>Get me out</button>
+          <button type="button" className="ghost" aria-label="Not stuck" onClick={() => { setStuck(false); stuckRef.current.pushing = -6; }}>✕</button>
+        </div>
+      )}
       {ride && ride.mode === "bus" && <BusRide3D from={ride.from} to={ride.to} fare={ride.fare} seconds={ride.seconds} onDone={() => void arrive()} />}
       {ride && ride.mode !== "bus" && <BusRide from={ride.from} to={ride.to} fare={ride.fare} mode={ride.mode} seconds={ride.seconds} onDone={() => void arrive()} />}
 

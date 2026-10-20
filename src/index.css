@@ -314,3 +314,10 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 /* The money on the top card is a button: today's spending limit. */
 .hud-money { border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline dotted rgba(0, 0, 0, 0.3); text-underline-offset: 3px; }
+
+/* "Stuck? Get me out": over the say bar, out of the thumbs' way. */
+.stuck-chip { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 12;
+  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 999px; background: #1a0b24; color: #fff;
+  font-weight: 700; font-size: 14px; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3); white-space: nowrap; }
+.stuck-chip button { border: none; border-radius: 999px; padding: 8px 14px; font: inherit; font-weight: 800; background: #f5c400; color: #1a0b24; cursor: pointer; }
+.stuck-chip button.ghost { background: rgba(255, 255, 255, 0.12); color: #fff; padding: 8px 11px; }
