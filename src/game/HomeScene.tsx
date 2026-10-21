@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
-import { BufferAttribute, BufferGeometry, type Group } from "three";
+import { BufferAttribute, BufferGeometry, type Group, type Mesh, type Texture } from "three";
 import type { Look } from "../api/appearance";
 import type { Home, Room } from "../api/home";
 import { Car } from "./Car";
@@ -11,7 +11,9 @@ import type { MeshData } from "./districtGeometry";
 import { cameraView, playerFocus } from "./focus";
 import { buildCam, buildInput, type BuildView } from "./homeBuild";
 import { spotRect } from "./homeDecor";
-import { buildFurniture, buildHouse, buildPiece, looksOf } from "./homeGeometry";
+import { buildFurniture, buildHouse, buildPiece, cutAway, looksOf } from "./homeGeometry";
+import { CEILING_SEEN_BELOW, buildCeilings, buildFloors, buildGlow, roomLights } from "./homeLighting";
+import { disposeMaterials, homeEnvironment, homeLights, homeMaterials } from "./homeLook";
 import { fixtureRect, itemRect, stairTrigger, type FloorChange, type Rect } from "./homeLayout";
 import { homeThings } from "./homeLife";
 import { isDone, serverNow } from "./homeRooms";
@@ -41,6 +43,7 @@ function toGeometry(mesh: MeshData): BufferGeometry {
   geometry.setAttribute("position", new BufferAttribute(mesh.positions, 3));
   geometry.setAttribute("normal", new BufferAttribute(mesh.normals, 3));
   geometry.setAttribute("color", new BufferAttribute(mesh.colors, 3));
+  geometry.setAttribute("uv", new BufferAttribute(mesh.uvs, 2));   // the light patches (homeLighting) read it
   geometry.setIndex(new BufferAttribute(mesh.indices, 1));
   geometry.computeBoundingSphere();
   return geometry;
@@ -111,10 +114,52 @@ export function HomeScene({ home, floor, onStairs, usable, onNear, build = null,
 
   const house = useMemo(() => {
     const angle = (view * Math.PI) / 4;
-    return toGeometry(buildHouse(plan, rooms, floor, look, { low: building, dirX: Math.sin(angle), dirZ: Math.cos(angle) }, { grid: building, now: serverNow() }));
+    return toGeometry(buildHouse(plan, rooms, floor, look, { low: building, dirX: Math.sin(angle), dirZ: Math.cos(angle) }, { grid: building, now: serverNow(), floors: false }));
     // `tick` redraws a building site as it goes up.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, rooms, floor, look, view, building, tick]);
+  // The floors, each sheen apart (polished stone shines, carpet does not), the ceilings, and the
+  // light falling on everything: homeLighting.ts.
+  const floors = useMemo(() => {
+    const built = buildFloors(plan, rooms, floor, look.finishes, serverNow());
+    return { polished: toGeometry(built.polished), satin: toGeometry(built.satin), matte: toGeometry(built.matte) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, rooms, floor, look, tick]);
+  const ceilings = useMemo(() => {
+    const angle = (view * Math.PI) / 4;
+    return toGeometry(buildCeilings(plan, rooms, floor, { low: building, dirX: Math.sin(angle), dirZ: Math.cos(angle) }, serverNow()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, rooms, floor, view, building, tick]);
+  const glow = useMemo(() => {
+    const angle = (view * Math.PI) / 4;
+    const wallView = { low: building, dirX: Math.sin(angle), dirZ: Math.cos(angle) };
+    return toGeometry(buildGlow(plan, rooms, floor, wallView, items, catalogue, cutAway, serverNow(), (wall) => look.paints.get(wall)?.hex));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, rooms, floor, look, view, building, items, catalogue, tick]);
+  useEffect(() => () => Object.values(floors).forEach((geometry) => geometry.dispose()), [floors]);
+  useEffect(() => () => ceilings.dispose(), [ceilings]);
+  useEffect(() => () => glow.dispose(), [glow]);
+
+  // What everything is made of, how it is lit, and what shiny things reflect: homeLook.ts.
+  const materials = useMemo(() => homeMaterials(), []);
+  useEffect(() => () => disposeMaterials(materials), [materials]);
+  const gl = useThree((state) => state.gl);
+  const scene = useThree((state) => state.scene);
+  useEffect(() => {
+    const environment: Texture = homeEnvironment(gl);
+    const before = scene.environment;
+    scene.environment = environment;
+    return () => {
+      scene.environment = before;
+      environment.dispose();
+    };
+  }, [gl, scene]);
+  const lights = useMemo(() => {
+    const width = Math.max(...plan.floors.map((entry) => entry.w)) * cell, depth = Math.max(...plan.floors.map((entry) => entry.d)) * cell;
+    return homeLights(roomLights(plan, rooms, floor), { x: width / 2, z: depth / 2 });
+  }, [plan, rooms, floor, cell]);
+  // Ceilings only from under them: from above, the house is seen into, as a doll's house is.
+  const ceilingRef = useRef<Mesh>(null);
   const furniture = useMemo(
     () => toGeometry(buildFurniture(plan, floor, items, catalogue, build?.moving ?? null)),
     [plan, floor, items, catalogue, build?.moving],
@@ -144,7 +189,8 @@ export function HomeScene({ home, floor, onStairs, usable, onNear, build = null,
   const [near, setNear] = useState<Near | null>(null);
   const nearNow = useRef<Near | null>(null);
 
-  useFrame(() => {
+  useFrame(({ camera }) => {
+    if (ceilingRef.current) ceilingRef.current.visible = camera.position.y < CEILING_SEEN_BELOW;
     const turned = eighth(building ? buildCam.yaw : cameraView.yaw);
     if (turned !== view) setView(turned);
 
@@ -200,36 +246,22 @@ export function HomeScene({ home, floor, onStairs, usable, onNear, build = null,
   const lotRect = lot
     ? { cx: ((lot.min_x + lot.max_x) / 2) * cell, cz: ((lot.min_z + lot.max_z) / 2) * cell, w: (lot.max_x - lot.min_x) * cell + 20, d: (lot.max_z - lot.min_z) * cell + 20 }
     : { cx: 5, cz: 5, w: 40, d: 40 };
-  const sun = { x: lotRect.cx + 6, z: lotRect.cz + 10 };
 
   return (
     <>
       <color attach="background" args={[OUTSIDE]} />
-      {/* Indoors the light comes from everywhere, so nothing is ever in deep shadow. */}
-      <ambientLight intensity={1.35} />
-      <hemisphereLight args={["#ffffff", "#8a7a66", 0.7]} />
-      <directionalLight
-        position={[sun.x, 14, sun.z]}
-        intensity={1.7}
-        color="#fff4e2"
-        castShadow
-        shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-20}
-        shadow-camera-right={20}
-        shadow-camera-top={20}
-        shadow-camera-bottom={-20}
-        shadow-camera-near={1}
-        shadow-camera-far={50}
-        shadow-bias={-0.0005}
-        shadow-normalBias={0.03}
-      />
+      {/* Warm downlights, low ambient, a key light for shadows (homeLook.ts). While building,
+          more light everywhere, so every piece can be seen and placed. */}
+      <primitive object={lights} />
+      {building && <ambientLight intensity={0.9} />}
 
-      <mesh geometry={house} receiveShadow onClick={tap}>
-        <meshLambertMaterial vertexColors />
-      </mesh>
-      <mesh geometry={furniture} castShadow receiveShadow onClick={tap}>
-        <meshLambertMaterial vertexColors />
-      </mesh>
+      <mesh geometry={house} material={materials.walls} receiveShadow onClick={tap} />
+      <mesh geometry={floors.polished} material={materials.floors.polished} receiveShadow onClick={tap} />
+      <mesh geometry={floors.satin} material={materials.floors.satin} receiveShadow onClick={tap} />
+      <mesh geometry={floors.matte} material={materials.floors.matte} receiveShadow onClick={tap} />
+      <mesh ref={ceilingRef} geometry={ceilings} material={materials.walls} />
+      <mesh geometry={furniture} material={materials.furniture} castShadow receiveShadow onClick={tap} />
+      <mesh geometry={glow} material={materials.glow} renderOrder={1} />
       {building && (
         // An invisible floor over the whole plot, so a tap anywhere lands somewhere.
         <mesh position={[lotRect.cx, -0.01, lotRect.cz]} rotation={[-Math.PI / 2, 0, 0]} onClick={tap}>

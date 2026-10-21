@@ -7,7 +7,7 @@ import { footprint, itemRect, type Rect } from "./homeLayout";
 import { DOOR, doorways, insideOneRoom, serverNow } from "./homeRooms";
 
 /** Things that hang on a wall: their back must be against one. Must match the server. */
-export const ON_WALL = new Set(["painting", "clock", "ac"]);
+export const ON_WALL = new Set(["painting", "clock", "ac", "art_large", "art_trio", "mirror", "curtains", "wall_light"]);
 
 /** How much clear floor is left between the player and a piece they are offered, in metres. */
 const AHEAD = 0.35;

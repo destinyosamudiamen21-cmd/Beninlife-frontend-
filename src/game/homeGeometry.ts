@@ -31,11 +31,13 @@ function mix(a: RGB, b: RGB, t: number): RGB {
 const OUTSIDE_WALL = hexToLinear("#e8e2d6");
 const WALL_TOP = hexToLinear("#4a423a");
 const TRIM = hexToLinear("#5d4a39");
+const MOULDING = hexToLinear("#f2efe8");   // skirting, crown moulding and door frames: white, as in a good house
+const SKIRT_HEIGHT = 0.13;
+const CROWN = 0.11;                        // how deep the crown moulding at the top of a wall is
 const DOOR_WOOD = hexToLinear("#5a3d28");
 const HANDLE = hexToLinear("#c9b26a");
 const GLASS = hexToLinear("#9cc4dc");
 const LOUVRE = hexToLinear("#d9e6ec");
-const STEP = hexToLinear("#8a6a4c");
 const DARK = hexToLinear("#1d1a18");
 const GRASS = hexToLinear("#8fb36e");
 const GRASS_FAR = hexToLinear("#7fa262");
@@ -70,14 +72,22 @@ export function looksOf(paints: Paint[], finishes: FloorFinish[]): Look {
 
 // ---- the plot ----------------------------------------------------------
 
-function buildPlot(builder: MeshBuilder, plan: HomePlan, grid: boolean): void {
+function buildPlot(builder: MeshBuilder, plan: HomePlan, grid: boolean, hole: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null): void {
   const cell = plan.cell;
   const lot = plan.lot;
   const x0 = lot.min_x * cell, x1 = lot.max_x * cell, z0 = lot.min_z * cell, z1 = lot.max_z * cell;
   const ground = (ax: number, bx: number, az: number, bz: number, color: RGB, y = -0.02) =>
     builder.face([[ax, y, az], [bx, y, az], [bx, y, bz], [ax, y, bz]], color, [0, 1, 0]);
   const far = 70;
-  ground(x0, x1, z0, z1, GRASS);
+  if (hole) {
+    // Upstairs, the ground round the stair hole only: down the hole are the stairs and the floor below.
+    ground(x0, x1, z0, hole.minZ, GRASS);
+    ground(x0, x1, hole.maxZ, z1, GRASS);
+    ground(x0, hole.minX, hole.minZ, hole.maxZ, GRASS);
+    ground(hole.maxX, x1, hole.minZ, hole.maxZ, GRASS);
+  } else {
+    ground(x0, x1, z0, z1, GRASS);
+  }
   ground(x0 - far, x0, z0 - far, z1 + far, GRASS_FAR);
   ground(x1, x1 + far, z0 - far, z1 + far, GRASS_FAR);
   ground(x0, x1, z1, z1 + far, GRASS_FAR);
@@ -142,7 +152,7 @@ function doorIn(builder: MeshBuilder, x: number, z: number, along: "x" | "z", si
   const hx = along === "x" ? half : 0.02, hz = along === "x" ? 0.02 : half;
   const out = (d: number) => (along === "x" ? [x, z + side * d] : [x + side * d, z]) as [number, number];
   const [fx, fz] = out(HALF_WALL + 0.01);
-  builder.box(fx, fz, hx + (along === "x" ? 0.05 : 0), hz + (along === "z" ? 0.05 : 0), 0, 2.16, TRIM);
+  builder.box(fx, fz, hx + (along === "x" ? 0.07 : 0), hz + (along === "z" ? 0.07 : 0), 0, 2.2, MOULDING);
   const [px, pz] = out(HALF_WALL + 0.03);
   builder.box(px, pz, along === "x" ? half - 0.04 : 0.02, along === "x" ? 0.02 : half - 0.04, 0, 2.08, DOOR_WOOD);
   const [hxp, hzp] = out(HALF_WALL + 0.055);
@@ -159,22 +169,24 @@ export function buildHouse(
   floor: number,
   look: Look,
   view: WallView,
-  options: { grid?: boolean; now?: number } = {},
+  options: { grid?: boolean; now?: number; floors?: boolean } = {},
 ): MeshData {
   const builder = new MeshBuilder();
   const cell = plan.cell;
   const now = options.now ?? serverNow();
   const strip = stairsRect(plan);
   const stairs = plan.stairs;
-  buildPlot(builder, plan, Boolean(options.grid));
+  buildPlot(builder, plan, Boolean(options.grid), floor > 0 ? strip : null);
 
   const here = rooms.filter((room) => room.floor === floor);
   const inWell = (cx: number, cz: number) =>
     floor > 0 && stairs !== null && cx >= stairs.x && cx < stairs.x + stairs.w && cz >= stairs.z && cz < stairs.z + stairs.d;
 
-  // Floors of the finished rooms.
-  for (const room of here) {
-    if (isDone(room, now)) buildFloor(builder, plan, room, look.finishes.get(room.ground), inWell);
+  // Floors of the finished rooms (unless they are drawn apart, each with its own shine: homeLighting.ts).
+  if (options.floors !== false) {
+    for (const room of here) {
+      if (isDone(room, now)) buildFloor(builder, plan, room, look.finishes.get(room.ground), inWell);
+    }
   }
 
   // Walls of the finished rooms: each run its own half, painted for its room, and the
@@ -193,11 +205,17 @@ export function buildHouse(
       builder.box(outer.cx, outer.cz, outer.halfX, outer.halfZ, 0, height, shade(OUTSIDE_WALL, sideShade));
       builder.box(outer.cx, outer.cz, outer.halfX, outer.halfZ, height, height + 0.004, WALL_TOP);
     }
-    // A skirting board along the bottom, inside.
-    const skirt = run.axis === "x"
-      ? { cx: inner.cx - run.out * (HALF_WALL / 2 + 0.006), cz: inner.cz, halfX: 0.006, halfZ: inner.halfZ }
-      : { cx: inner.cx, cz: inner.cz - run.out * (HALF_WALL / 2 + 0.006), halfX: inner.halfX, halfZ: 0.006 };
-    builder.box(skirt.cx, skirt.cz, skirt.halfX, skirt.halfZ, 0, 0.09, TRIM);
+    // A white skirting board along the bottom, inside, and crown moulding along the top.
+    const along = (depth: number) => run.axis === "x"
+      ? { cx: inner.cx - run.out * (HALF_WALL / 2 + depth), cz: inner.cz, halfX: depth, halfZ: inner.halfZ }
+      : { cx: inner.cx, cz: inner.cz - run.out * (HALF_WALL / 2 + depth), halfX: inner.halfX, halfZ: depth };
+    const skirt = along(0.009);
+    builder.box(skirt.cx, skirt.cz, skirt.halfX, skirt.halfZ, 0, Math.min(height, SKIRT_HEIGHT), MOULDING);
+    if (height >= WALL_HEIGHT) {
+      const lower = along(0.022), upper = along(0.04);
+      builder.box(lower.cx, lower.cz, lower.halfX, lower.halfZ, WALL_HEIGHT - CROWN, WALL_HEIGHT, MOULDING);
+      builder.box(upper.cx, upper.cz, upper.halfX, upper.halfZ, WALL_HEIGHT - CROWN * 0.45, WALL_HEIGHT, MOULDING);
+    }
 
     if (height < WALL_HEIGHT) continue;
     // Windows in long outside walls, wherever the front door is not.
@@ -251,7 +269,12 @@ export function buildHouse(
     if (!isDone(room, now)) buildSite(builder, plan, rooms, room, now, view);
   }
 
-  if (strip && stairs) buildStairs(builder, plan, floor, strip, stairs.w);
+  if (strip && stairs) {
+    // Looking down the stairs from upstairs: the stairwell in the colours of the room below.
+    const under = rooms.find((room) => room.floor === floor - 1 && room.x <= stairs.x && room.x + room.w >= stairs.x + stairs.w && room.z <= stairs.z && room.z + room.d >= stairs.z + stairs.d);
+    const below = under ? { wall: hexToLinear(look.paints.get(under.wall)?.hex ?? "#e9dfc4"), ground: hexToLinear(look.finishes.get(under.ground)?.a ?? "#9d9a92") } : undefined;
+    buildStairs(builder, plan, floor, strip, stairs.w, below);
+  }
   return builder.build();
 }
 
@@ -329,37 +352,87 @@ function buildSite(builder: MeshBuilder, plan: HomePlan, rooms: Room[], room: Ro
   }
 }
 
-function buildStairs(builder: MeshBuilder, plan: HomePlan, floor: number, strip: { minX: number; maxX: number; minZ: number; maxZ: number }, _w: number): void {
+const TREAD = hexToLinear("#4a2f1c");      // walnut stair treads and handrail
+const RISER = hexToLinear("#efebe3");
+const RAIL_HEIGHT = 0.92;
+
+/** A straight beam of square section `size` from point a to point b (a sloping handrail). */
+function beam(builder: MeshBuilder, a: Vec3, b: Vec3, size: number, color: RGB): void {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const length = Math.hypot(dx, dy, dz);
+  if (length < 1e-6) return;
+  const f: Vec3 = [dx / length, dy / length, dz / length];
+  // Two directions square to the beam: one level (side), one roughly up.
+  let side: Vec3 = [f[2], 0, -f[0]];
+  const sl = Math.hypot(side[0], side[2]) || 1;
+  side = [side[0] / sl, 0, side[2] / sl];
+  const up: Vec3 = [f[1] * side[2] - f[2] * side[1], f[2] * side[0] - f[0] * side[2], f[0] * side[1] - f[1] * side[0]];
+  const h = size / 2;
+  const corner = (p: Vec3, s: number, u: number): Vec3 => [p[0] + side[0] * s * h + up[0] * u * h, p[1] + side[1] * s * h + up[1] * u * h, p[2] + side[2] * s * h + up[2] * u * h];
+  const ring = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+  for (let k = 0; k < 4; k++) {
+    const [s0, u0] = ring[k], [s1, u1] = ring[(k + 1) % 4];
+    const out: Vec3 = [side[0] * (s0 + s1) + up[0] * (u0 + u1), side[1] * (s0 + s1) + up[1] * (u0 + u1), side[2] * (s0 + s1) + up[2] * (u0 + u1)];
+    builder.face([corner(a, s0, u0), corner(b, s0, u0), corner(b, s1, u1), corner(a, s1, u1)], color, out);
+  }
+  builder.face(ring.map(([s0, u0]) => corner(b, s0, u0)), color, f);
+  builder.face(ring.map(([s0, u0]) => corner(a, s0, u0)), color, [-f[0], -f[1], -f[2]]);
+}
+
+/** A handrail with balusters from (x0, y0, z0) to (x1, y1, z1): walnut posts, a walnut rail on top. */
+function balustrade(builder: MeshBuilder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, every = 0.2): void {
+  const length = Math.hypot(x1 - x0, z1 - z0);
+  const count = Math.max(1, Math.round(length / every));
+  for (let i = 0; i <= count; i++) {
+    const t = i / count;
+    const x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t, y = y0 + (y1 - y0) * t;
+    builder.box(x, z, 0.027, 0.027, y, y + RAIL_HEIGHT, TREAD);   // sides under 5 cm are not drawn (wallsAround)
+  }
+  beam(builder, [x0, y0 + RAIL_HEIGHT + 0.02, z0], [x1, y1 + RAIL_HEIGHT + 0.02, z1], 0.075, TREAD);
+}
+
+function buildStairs(builder: MeshBuilder, plan: HomePlan, floor: number, strip: { minX: number; maxX: number; minZ: number; maxZ: number }, _w: number, below?: { wall: RGB; ground: RGB }): void {
   const cell = plan.cell;
   const run = (strip.maxZ - strip.minZ) / STEPS;
   const rise = WALL_HEIGHT / STEPS;
   const middle = (strip.minX + strip.maxX) / 2;
   const half = (strip.maxX - strip.minX) / 2;
+  // A staircase in the old style of good houses: walnut treads with a lip, white risers and
+  // white sides, and white balusters with a walnut handrail on the open side.
+  const flight = (base: number, bottomZ: (i: number) => number, sign: 1 | -1) => {
+    for (let i = 0; i < STEPS; i++) {
+      const z = bottomZ(i);                         // the middle of step i
+      const top = base + (i + 1) * rise;
+      builder.box(middle, z, half, run / 2, base, top - 0.045, RISER);                    // the body of the step: white
+      builder.box(middle, z + sign * 0.025, half + 0.01, run / 2 + 0.025, top - 0.045, top, TREAD); // the tread, with a lip
+    }
+  };
   if (floor === 0) {
     // Going up: the bottom step is at the front, each one behind it a step higher.
-    for (let i = 0; i < STEPS; i++) {
-      const front = strip.maxZ - i * run;
-      builder.box(middle, front - run / 2, half, run / 2, 0, (i + 1) * rise, shade(STEP, i % 2 ? 0.92 : 1));
-    }
+    flight(0, (i) => strip.maxZ - i * run - run / 2, 1);
+    const x = strip.maxX + 0.05;
+    balustrade(builder, x, rise, strip.maxZ - run / 2, x, WALL_HEIGHT, strip.minZ + run / 2);
+    builder.box(x, strip.maxZ - run / 2, 0.06, 0.06, 0, rise + RAIL_HEIGHT + 0.12, TREAD);   // the newel post at the foot
     return;
   }
   // Coming down: the same stairs seen from above, dropping away towards the front.
-  for (let i = 0; i < STEPS; i++) {
-    const back = strip.minZ + i * run;
-    builder.box(middle, back + run / 2, half, run / 2, -WALL_HEIGHT, -i * rise, shade(STEP, i % 2 ? 0.92 : 1));
-  }
+  flight(-WALL_HEIGHT, (i) => strip.minZ + (STEPS - 1 - i) * run + run / 2, 1);
   const top = 0, bottom = -WALL_HEIGHT;
+  const wall = below?.wall ?? DARK;
   const corner = (x: number, y: number, z: number): Vec3 => [x, y, z];
-  builder.face([corner(strip.maxX, bottom, strip.minZ), corner(strip.maxX, bottom, strip.maxZ), corner(strip.maxX, top, strip.maxZ), corner(strip.maxX, top, strip.minZ)], DARK, [-1, 0, 0]);
-  builder.face([corner(strip.minX, bottom, strip.maxZ), corner(strip.maxX, bottom, strip.maxZ), corner(strip.maxX, top, strip.maxZ), corner(strip.minX, top, strip.maxZ)], DARK, [0, 0, -1]);
-  builder.face([corner(strip.minX, bottom, strip.minZ), corner(strip.minX, bottom, strip.maxZ), corner(strip.minX, top, strip.maxZ), corner(strip.minX, top, strip.minZ)], DARK, [1, 0, 0]);
-  // A rail round the hole, open at the back where the top step is.
+  builder.face([corner(strip.maxX, bottom, strip.minZ), corner(strip.maxX, bottom, strip.maxZ), corner(strip.maxX, top, strip.maxZ), corner(strip.maxX, top, strip.minZ)], shade(wall, 0.7), [-1, 0, 0]);
+  builder.face([corner(strip.minX, bottom, strip.maxZ), corner(strip.maxX, bottom, strip.maxZ), corner(strip.maxX, top, strip.maxZ), corner(strip.minX, top, strip.maxZ)], shade(wall, 0.8), [0, 0, -1]);
+  builder.face([corner(strip.minX, bottom, strip.minZ), corner(strip.minX, bottom, strip.maxZ), corner(strip.minX, top, strip.maxZ), corner(strip.minX, top, strip.minZ)], shade(wall, 0.75), [1, 0, 0]);
+  // The floor at the foot of the stairs, below.
+  const ground = below?.ground ?? DARK;
+  builder.face([corner(strip.minX, bottom + 0.001, strip.minZ), corner(strip.maxX, bottom + 0.001, strip.minZ), corner(strip.maxX, bottom + 0.001, strip.maxZ), corner(strip.minX, bottom + 0.001, strip.maxZ)], shade(ground, 0.6), [0, 1, 0]);
+  // A balustrade round the hole, open at the back where the top step is.
   const railStart = strip.minZ + cell;
-  const railX = strip.maxX + 0.03, railZ = strip.maxZ + 0.03;
-  builder.box(railX, (railStart + railZ) / 2, 0.03, (railZ - railStart) / 2 + 0.03, 0.88, 0.95, TRIM);
-  builder.box(middle, railZ, half + 0.06, 0.03, 0.88, 0.95, TRIM);
-  for (let z = railStart; z <= railZ + 1e-6; z += cell) builder.box(railX, Math.min(z, railZ), 0.025, 0.025, 0, 0.88, TRIM);
-  for (let x = strip.minX + 0.03; x < railX - 0.1; x += cell) builder.box(x, railZ, 0.025, 0.025, 0, 0.88, TRIM);
+  const railX = strip.maxX + 0.04, railZ = strip.maxZ + 0.04;
+  balustrade(builder, railX, 0, railStart, railX, 0, railZ);
+  balustrade(builder, strip.minX + 0.04, 0, railZ, railX, 0, railZ);
+  builder.box(railX, railZ, 0.06, 0.06, 0, RAIL_HEIGHT + 0.1, TREAD);
+  void wall;
 }
 
 // ---- furniture ---------------------------------------------------------
@@ -403,6 +476,14 @@ export const PAINT: Record<string, RGB> = {
   pink: hexToLinear("#e9a2b8"),
   red: hexToLinear("#c0392b"),
   green: hexToLinear("#1f8a4c"),
+  // The luxury pieces.
+  velvet: hexToLinear("#b4471e"), velvetDark: hexToLinear("#923716"), velvetLight: hexToLinear("#c95a2b"),
+  brass: hexToLinear("#b8913f"), crystal: hexToLinear("#eef3f8"), ivory: hexToLinear("#efe7d6"),
+  walnut: hexToLinear("#4a2f1c"), marbleTop: hexToLinear("#f1efea"), greige: hexToLinear("#cfc4b2"), greigeDark: hexToLinear("#b9ad99"),
+  curtain: hexToLinear("#d9c8a6"), curtainDark: hexToLinear("#c4b18b"), emerald: hexToLinear("#1f5a45"),
+  glassClear: hexToLinear("#c9e0ea"), frame: hexToLinear("#1b1b1d"), art4: hexToLinear("#6a8caf"), art5: hexToLinear("#c24f3c"),
+  art6: hexToLinear("#e8d9b5"), leafDark: hexToLinear("#2f5e2c"), rose: hexToLinear("#d75c79"), rugRed: hexToLinear("#7a2128"),
+  rugNavy: hexToLinear("#1f2a48"), steelDark: hexToLinear("#6b6f75"),
 };
 
 /**
@@ -657,6 +738,136 @@ export const SHAPES: Record<string, Part[]> = {
   // On the wall behind it.
   painting: [[0, -0.22, 0.45, 0.02, 1.2, 1.9, "gold"], [0, -0.2, 0.41, 0.006, 1.24, 1.86, "art3"], [-0.15, -0.195, 0.2, 0.004, 1.3, 1.6, "art1"], [0.18, -0.195, 0.16, 0.004, 1.45, 1.8, "art2"]],
   clock: [[0, -0.23, 0.15, 0.02, 1.9, 2.2, "black"], [0, -0.215, 0.13, 0.005, 1.92, 2.18, "white"], [0, -0.21, 0.01, 0.003, 2.05, 2.15, "black"], [0.04, -0.21, 0.05, 0.003, 2.05, 2.06, "black"]],
+
+  // ---- luxury pieces ----
+  // (Anything on a wall stands clear of it: a wall takes the back 7.5 cm of the item's cell.)
+  // An L-shaped sofa in burnt-orange velvet: a long seat along the back and a chaise to the right.
+  sofa_l: [
+    [0, -0.5, 1.45, 0.45, 0.1, 0.42, "velvet"], [0, -0.92, 1.45, 0.08, 0.1, 0.92, "velvetDark"],
+    [-1.42, -0.5, 0.08, 0.45, 0.1, 0.66, "velvetDark"], [1.0, 0.45, 0.45, 0.55, 0.1, 0.42, "velvet"],
+    [1.42, 0.0, 0.08, 0.98, 0.1, 0.66, "velvetDark"], [0, -0.5, 1.45, 0.45, 0, 0.1, "walnut"], [1.0, 0.45, 0.45, 0.55, 0, 0.1, "walnut"],
+    ...[-1.0, -0.15, 0.7].flatMap((x): Part[] => [[x, -0.76, 0.4, 0.08, 0.42, 0.82, "velvetLight"], [x, -0.42, 0.4, 0.3, 0.42, 0.5, "velvetLight"]]),
+    [1.0, 0.45, 0.4, 0.5, 0.42, 0.5, "velvetLight"],
+    [-1.12, -0.68, 0.14, 0.05, 0.5, 0.74, "ivory"], [-0.78, -0.68, 0.13, 0.05, 0.5, 0.72, "emerald"], [0.95, -0.68, 0.14, 0.05, 0.5, 0.74, "ivory"],
+  ],
+  velvet_sofa: [...seat(1.22, "velvet", "velvetDark", "velvetLight", 3), [-0.85, -0.22, 0.14, 0.05, 0.5, 0.72, "ivory"], [0.85, -0.22, 0.14, 0.05, 0.5, 0.72, "emerald"]],
+  accent_chair: [...seat(0.45, "velvet", "velvetDark", "velvetLight", 1), ...legs(0.38, 0.38, 0.026, 0.06, "brass")],
+  // A slim walnut console against a wall with a brass lamp and a vase on it.
+  console: [
+    [0, -0.05, 0.72, 0.18, 0.78, 0.82, "walnut"], ...legs(0.66, 0.12, 0.026, 0.78, "brass"),
+    [0.45, -0.05, 0.07, 0.07, 0.82, 0.9, "brass"], [0.45, -0.05, 0.026, 0.026, 0.9, 1.18, "brass"], [0.45, -0.05, 0.15, 0.15, 1.12, 1.38, "ivory"],
+    [-0.4, -0.05, 0.06, 0.06, 0.82, 1.05, "frame"], [-0.4, -0.05, 0.1, 0.1, 1.05, 1.2, "rose"],
+  ],
+  // Glass-fronted display cabinet in walnut: lit shelves of plates and ornaments.
+  display_cabinet: [
+    [0, -0.03, 0.72, 0.2, 0, 1.95, "walnut"], [0, 0.18, 0.66, 0.026, 0.1, 1.85, "glassDark"],
+    ...[0.55, 1.0, 1.45].flatMap((y, i): Part[] => [[-0.4 + i * 0.1, 0.05, 0.12, 0.08, y, y + 0.22, "ivory"], [0.3 - i * 0.12, 0.05, 0.08, 0.08, y, y + 0.16, "brass"]]),
+    [0, 0.21, 0.04, 0.03, 0.9, 1.1, "brass"],
+  ],
+  coffee_round: [...roundish(0.6, 0.38, 0.43, "marbleTop"), ...roundish(0.28, 0, 0.38, "brass"), [0.18, 0.05, 0.08, 0.08, 0.43, 0.52, "emerald"], [-0.2, -0.1, 0.1, 0.07, 0.43, 0.47, "frame"]],
+  // A kitchen island with a white marble top, and three brass stools along the front.
+  island: [
+    [0, -0.12, 1.2, 0.36, 0, 0.88, "walnut"], [0, -0.12, 1.27, 0.42, 0.88, 0.94, "marbleTop"],
+    ...[-0.8, 0, 0.8].flatMap((x): Part[] => [[x, 0.33, 0.15, 0.15, 0, 0.6, "brass"], [x, 0.33, 0.17, 0.15, 0.6, 0.66, "frame"]]),
+    [-0.5, -0.15, 0.12, 0.09, 0.94, 1.02, "ivory"], [0.45, -0.1, 0.15, 0.1, 0.94, 1.0, "ivory"],
+  ],
+  // A run of fitted units: walnut doors, white marble top and splashback, cupboards above.
+  kitchen_run: [
+    [0, -0.02, 1.48, 0.23, 0, 0.86, "walnut"], [0, -0.02, 1.5, 0.25, 0.86, 0.9, "marbleTop"],
+    [0, -0.17, 1.48, 0.026, 0.9, 1.45, "marbleTop"], [0, -0.12, 1.48, 0.13, 1.45, 2.2, "walnut"],
+    [-0.6, -0.02, 0.3, 0.15, 0.86, 0.905, "steel"], [0.6, -0.02, 0.3, 0.17, 0.86, 0.91, "frame"],
+    ...[-1.1, -0.37, 0.37, 1.1].map((x): Part => [x, 0.22, 0.05, 0.026, 0.66, 0.7, "brass"]),
+  ],
+  range: [[0, 0, 0.48, 0.24, 0, 0.9, "steel"], [0, 0, 0.48, 0.24, 0.9, 0.94, "frame"], [0, 0.23, 0.38, 0.026, 0.15, 0.7, "glassDark"], [0, 0.24, 0.4, 0.026, 0.78, 0.84, "steelDark"]],
+  // A dining table for six in walnut, upholstered chairs in ivory.
+  dining_set: [
+    [0, 0, 1.2, 0.55, 0.72, 0.77, "walnut"], [-0.8, 0, 0.08, 0.3, 0, 0.72, "walnut"], [0.8, 0, 0.08, 0.3, 0, 0.72, "walnut"],
+    ...[-0.75, 0, 0.75].flatMap((x): Part[] => [
+      [x, -0.82, 0.22, 0.2, 0.42, 0.5, "ivory"], [x, -1.0, 0.22, 0.03, 0.5, 1.05, "ivory"],
+      [x, 0.82, 0.22, 0.2, 0.42, 0.5, "ivory"], [x, 1.0, 0.22, 0.03, 0.5, 1.05, "ivory"],
+      [x, -0.82, 0.2, 0.18, 0, 0.42, "walnut"], [x, 0.82, 0.2, 0.18, 0, 0.42, "walnut"],
+    ]),
+    [0, 0, 0.1, 0.1, 0.77, 0.95, "crystal"], [0.5, 0.1, 0.14, 0.14, 0.77, 0.8, "ivory"], [-0.5, -0.1, 0.14, 0.14, 0.77, 0.8, "ivory"],
+  ],
+  // An upholstered king bed with a tall tufted headboard and a velvet bench at its foot.
+  bed_luxe: [
+    [0, 0.05, 1.15, 1.1, 0, 0.35, "greige"], [0, 0.1, 1.08, 1.0, 0.35, 0.6, "white"],
+    [0, -1.2, 1.25, 0.06, 0, 1.65, "greige"], ...[-0.8, -0.4, 0, 0.4, 0.8].map((x): Part => [x, -1.13, 0.17, 0.026, 0.45, 1.55, "greigeDark"]),
+    [-0.5, -0.8, 0.38, 0.14, 0.6, 0.76, "white"], [0.5, -0.8, 0.38, 0.14, 0.6, 0.76, "white"], [0, -0.68, 0.3, 0.08, 0.6, 0.74, "emerald"],
+    [0, 0.42, 1.1, 0.68, 0.6, 0.66, "emerald"], [0, 1.0, 1.1, 0.06, 0.4, 0.66, "emerald"],
+    [0, 1.12, 0.8, 0.12, 0, 0.45, "velvet"],
+  ],
+  vanity_table: [
+    [0, -0.03, 0.7, 0.2, 0.74, 0.78, "ivory"], ...legs(0.64, 0.14, 0.026, 0.74, "brass"),
+    [0, -0.19, 0.4, 0.026, 1.0, 1.75, "brass"], [0, -0.16, 0.36, 0.026, 1.04, 1.71, "glass"],
+    [0, 0.12, 0.17, 0.11, 0, 0.45, "velvet"], [-0.4, -0.05, 0.05, 0.05, 0.78, 0.9, "rose"],
+  ],
+  // A tall walnut wardrobe with three glass doors and brass handles.
+  armoire: [
+    [0, 0, 1.22, 0.24, 0, 2.3, "walnut"], [0, 0, 1.24, 0.25, 2.3, 2.36, "walnut"],
+    ...[-0.8, 0, 0.8].flatMap((x): Part[] => [[x, 0.243, 0.37, 0.026, 0.1, 2.2, "glassDark"], [x + 0.3, 0.27, 0.026, 0.026, 1.0, 1.3, "brass"]]),
+  ],
+  // Bathroom: a double vanity in walnut and marble with a big mirror; a freestanding tub; a glass shower.
+  vanity: [
+    [0, -0.02, 0.98, 0.23, 0, 0.82, "walnut"], [0, -0.02, 1.0, 0.25, 0.82, 0.86, "marbleTop"],
+    [-0.45, 0.0, 0.2, 0.15, 0.86, 0.95, "white"], [0.45, 0.0, 0.2, 0.15, 0.86, 0.95, "white"],
+    [-0.45, -0.18, 0.026, 0.026, 0.86, 1.08, "brass"], [0.45, -0.18, 0.026, 0.026, 0.86, 1.08, "brass"],
+    [0, -0.19, 0.95, 0.026, 1.0, 1.95, "brass"], [0, -0.16, 0.9, 0.026, 1.04, 1.91, "glass"],
+  ],
+  freestanding_tub: [
+    [0, 0, 0.85, 0.4, 0.08, 0.6, "white"], [0, 0, 0.75, 0.3, 0.5, 0.605, "water"],
+    ...legs(0.7, 0.3, 0.04, 0.08, "brass"), [0.78, -0.3, 0.026, 0.026, 0.6, 0.85, "brass"], [0.7, -0.3, 0.09, 0.026, 0.82, 0.86, "brass"],
+  ],
+  shower_glass: [
+    [0, 0, 0.72, 0.72, 0, 0.06, "marbleTop"], [0, 0.7, 0.72, 0.026, 0.06, 2.0, "glassClear"], [0.7, 0, 0.026, 0.72, 0.06, 2.0, "glassClear"],
+    [0, -0.45, 0.16, 0.16, 2.1, 2.14, "steel"], [0, -0.66, 0.026, 0.026, 1.0, 2.14, "steel"], [0, -0.55, 0.026, 0.12, 2.1, 2.14, "steel"],
+  ],
+  // Lights.
+  chandelier_crystal: [
+    [0, 0, 0.026, 0.026, 2.42, 2.8, "brass"], ...roundish(0.52, 2.2, 2.24, "brass"), ...roundish(0.14, 2.24, 2.42, "brass"),
+    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((i): Part[] => {
+      const a = (i / 10) * Math.PI * 2, x = Math.cos(a), z = Math.sin(a);
+      return [[x * 0.48, z * 0.48, 0.026, 0.026, 2.0, 2.2, "crystal"], [x * 0.48, z * 0.48, 0.028, 0.028, 2.24, 2.32, "ivory"],
+        [x * 0.28, z * 0.28, 0.026, 0.026, 1.9, 2.2, "crystal"]];
+    }),
+    [0, 0, 0.06, 0.06, 1.78, 2.2, "crystal"],
+  ],
+  pendants: [-0.65, 0, 0.65].flatMap((x): Part[] => [[x, 0, 0.026, 0.026, 1.9, 2.8, "frame"], [x, 0, 0.16, 0.16, 1.66, 1.9, "brass"], [x, 0, 0.08, 0.08, 1.62, 1.66, "ivory"]]),
+  wall_light: [[0, -0.19, 0.07, 0.026, 1.8, 2.06, "brass"], [0, -0.16, 0.03, 0.07, 1.9, 1.95, "brass"], [0, -0.1, 0.09, 0.09, 1.86, 2.08, "ivory"]],
+  floor_lamp: [...roundish(0.16, 0, 0.04, "brass"), [0, 0, 0.026, 0.026, 0.04, 1.4, "brass"], [0, 0, 0.2, 0.2, 1.35, 1.66, "ivory"]],
+  // On the walls.
+  art_large: [
+    [0, -0.19, 0.95, 0.026, 1.0, 2.15, "frame"], [0, -0.165, 0.88, 0.026, 1.06, 2.09, "art6"],
+    [-0.35, -0.14, 0.4, 0.026, 1.2, 1.75, "art5"], [0.25, -0.14, 0.45, 0.026, 1.45, 1.95, "art4"], [0.4, -0.135, 0.2, 0.026, 1.15, 1.4, "art3"],
+  ],
+  art_trio: [-0.65, 0, 0.65].flatMap((x, i): Part[] => [
+    [x, -0.19, 0.27, 0.026, 1.25, 1.85, "brass"], [x, -0.165, 0.23, 0.026, 1.29, 1.81, "art6"],
+    [x, -0.14, 0.14, 0.026, 1.4 + i * 0.05, 1.7 - i * 0.03, ["art4", "art5", "leafDark"][i]],
+  ]),
+  mirror: [
+    [0, -0.19, 0.4, 0.026, 1.25, 1.95, "brass"], [0, -0.19, 0.28, 0.026, 1.1, 2.1, "brass"],
+    [0, -0.16, 0.36, 0.026, 1.29, 1.91, "glass"], [0, -0.16, 0.24, 0.026, 1.14, 2.06, "glass"],
+  ],
+  curtains: [
+    [0, -0.18, 1.0, 0.026, 2.55, 2.6, "brass"],
+    ...[-1, 1].flatMap((side): Part[] => [0, 1, 2, 3].map((k): Part => [side * (0.5 + k * 0.12), -0.15, 0.06, 0.06, 0.02, 2.55, k % 2 ? "curtainDark" : "curtain"])),
+  ],
+  // On the floor.
+  rug_persian: [
+    [0, 0, 1.98, 1.23, 0, 0.02, "rugRed"], [0, 0, 1.86, 1.11, 0.02, 0.024, "brass"], [0, 0, 1.78, 1.03, 0.024, 0.028, "rugNavy"],
+    [0, 0, 1.6, 0.85, 0.028, 0.032, "rugRed"], ...roundish(0.6, 0.032, 0.036, "brass"), ...roundish(0.42, 0.036, 0.04, "rugNavy"), ...roundish(0.2, 0.04, 0.044, "ivory"),
+    ...[[-1.3, -0.6], [1.3, -0.6], [-1.3, 0.6], [1.3, 0.6]].map(([x, z]): Part => [x, z, 0.16, 0.16, 0.032, 0.036, "ivory"]),
+  ],
+  plant_palm: [
+    [0, 0, 0.22, 0.22, 0, 0.45, "frame"], [0, 0, 0.05, 0.05, 0.45, 1.35, "darkwood"],
+    [0.32, 0, 0.32, 0.06, 1.32, 1.38, "leaf"], [-0.32, 0, 0.32, 0.06, 1.32, 1.38, "leafLight"], [0, 0.32, 0.06, 0.32, 1.34, 1.4, "leafDark"], [0, -0.32, 0.06, 0.32, 1.34, 1.4, "leaf"],
+    [0.22, 0.22, 0.2, 0.06, 1.42, 1.47, "leafLight"], [-0.22, -0.22, 0.2, 0.06, 1.42, 1.47, "leafDark"], [0, 0, 0.12, 0.12, 1.35, 1.6, "leaf"],
+  ],
+  vase: [[0, 0, 0.12, 0.12, 0, 0.6, "ivory"], [0, 0, 0.16, 0.16, 0.6, 0.82, "leafDark"], [0.06, 0.04, 0.12, 0.12, 0.72, 0.92, "rose"], [-0.07, -0.03, 0.1, 0.1, 0.75, 0.9, "art6"]],
+  bookcase: [
+    [0, -0.02, 1.48, 0.22, 0, 2.4, "walnut"], [0, 0.05, 1.4, 0.16, 0.12, 2.3, "frame"],
+    ...[0.15, 0.7, 1.25, 1.8].flatMap((y, i): Part[] => [[0, 0.07, 1.4, 0.15, y - 0.03, y, "walnut"], ...books(-1.3, -0.1, 0.06, y, 0.42, i * 5), [0.6, 0.06, 0.12, 0.09, y, y + 0.22, i % 2 ? "brass" : "ivory"]]),
+  ],
   // A snooker table: green cloth, a wooden frame, a few balls and a cue lying on it.
   pool: [
     ...legs(0.85, 1.35, 0.07, 0.66, "darkwood"),
