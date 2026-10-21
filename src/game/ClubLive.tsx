@@ -81,12 +81,35 @@ type Props = {
  * banners when somebody spends, the DJ's shout-outs, the board of the top spenders down the
  * side, and the club's own menu along the bottom, zone by zone, as in the Lagos clubs.
  */
+const TUCK_KEY = "beninlife.club-menu-tucked";
+
+function readTucked(): boolean {
+  try {
+    return window.localStorage.getItem(TUCK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function ClubLive(props: Props) {
   const { playerId, club, money, life, others, homeLife, tiedUp, news } = props;
   const [night, setNight] = useState<Night | null>(null);
   const [zone, setZone] = useState<Zone>("vip");
   const [board, setBoard] = useState<"tonight" | "ever" | null>(null);
   const [clean, setClean] = useState(false);
+  // The club's panel can be put away to watch the floor, and stays put away (or out) until
+  // the player says otherwise, this visit and the next.
+  const [tucked, setTuckedState] = useState(() => readTucked());
+  const setTucked = (value: boolean) => {
+    setTuckedState(value);
+    try {
+      window.localStorage.setItem(TUCK_KEY, value ? "1" : "0");
+    } catch {
+      // private browsing: it is only remembered until they leave
+    }
+  };
+  const drag = useRef<{ y: number; dy: number } | null>(null);
+  const [pull, setPull] = useState(0);
   const [banner, setBanner] = useState<Banner | null>(null);
   const [shout, setShout] = useState<Shout | null>(null);
   const [pills, setPills] = useState<{ key: number; text: string; kind: string }[]>([]);
@@ -273,7 +296,7 @@ export function ClubLive(props: Props) {
   };
 
   return (
-    <div className={clean ? "club-live clean" : "club-live"}>
+    <div className={`club-live${clean ? " clean" : ""}${tucked ? " tucked" : ""}`}>
       <ClubLiveStyles />
       {/* Notes and bottles flying across the screen when someone spends. */}
       <div className="cl-flying" aria-hidden="true">
@@ -359,14 +382,58 @@ export function ClubLive(props: Props) {
       )}
 
       {/* The club's own panel along the bottom. */}
-      {!tiedUp && !homeLife.menu && (
-        <div className="cl-sheet">
+      {!tiedUp && !homeLife.menu && tucked && (
+        <button
+          type="button"
+          className="cl-dock"
+          onClick={() => setTucked(false)}
+          onTouchStart={(event) => (drag.current = { y: event.touches[0].clientY, dy: 0 })}
+          onTouchMove={(event) => {
+            if (!drag.current) return;
+            drag.current.dy = event.touches[0].clientY - drag.current.y;
+          }}
+          onTouchEnd={() => {
+            if (drag.current && drag.current.dy < -24) setTucked(false);
+            drag.current = null;
+          }}
+          aria-label="Open the club menu"
+        >
+          <span className="cl-grip" aria-hidden="true" />
+          <span>🪩 {night?.name ?? "The club"} · <b>Menu</b> ⌃</span>
+        </button>
+      )}
+      {!tiedUp && !homeLife.menu && !tucked && (
+        <div className="cl-sheet" style={pull > 0 ? { transform: `translateX(-50%) translateY(${pull}px)`, transition: "none" } : undefined}>
+          <button
+            type="button"
+            className="cl-handle"
+            onClick={() => setTucked(true)}
+            onTouchStart={(event) => (drag.current = { y: event.touches[0].clientY, dy: 0 })}
+            onTouchMove={(event) => {
+              if (!drag.current) return;
+              drag.current.dy = event.touches[0].clientY - drag.current.y;
+              setPull(Math.max(0, drag.current.dy));
+            }}
+            onTouchEnd={(event) => {
+              const pulled = drag.current?.dy ?? 0;
+              drag.current = null;
+              setPull(0);
+              if (pulled > 50) {
+                event.preventDefault(); // the tap that would follow must not open it again
+                setTucked(true);
+              }
+            }}
+            aria-label="Put the club menu away"
+          >
+            <span className="cl-grip" aria-hidden="true" />
+          </button>
           <div className="cl-sheet-head">
             <span className="cl-avatar">🪩</span>
             <div>
               <strong>{night?.name ?? "The club"} <small>· {props.area}</small></strong>
               <span>{error || night?.ambient || "The night is young"}</span>
             </div>
+            <button type="button" className="cl-icon" onClick={() => setTucked(true)} aria-label="Put the club menu away">⌄</button>
             <button type="button" className="cl-icon" onClick={props.onLeave} aria-label="Leave the club">🚪</button>
           </div>
           <form
@@ -508,7 +575,17 @@ function ClubLiveStyles() {
         background: #2fae5a; color: #fff; font-weight: 900; font-size: 15px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); animation: cl-bounce 0.7s ease-in-out infinite alternate; cursor: pointer; }
       @keyframes cl-bounce { to { transform: translateX(-50%) translateY(-5px); } }
       .cl-sheet { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom)); width: min(520px, calc(100vw - 16px));
-        background: #fbf4ea; border-radius: 22px; padding: 10px 10px 12px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); pointer-events: auto; }
+        background: #fbf4ea; border-radius: 22px; padding: 10px 10px 12px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); pointer-events: auto;
+        transition: transform 0.2s ease-out; }
+      .cl-handle { display: block; width: 100%; border: 0; background: transparent; padding: 0 0 8px; margin-top: -4px; cursor: grab; touch-action: none; }
+      .cl-grip { display: block; width: 42px; height: 5px; border-radius: 3px; background: #cdbfae; margin: 0 auto; }
+      .cl-dock { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom)); border: 0; border-radius: 18px;
+        background: #fbf4ea; color: #1c1420; padding: 6px 18px 9px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); display: flex; flex-direction: column; align-items: center; gap: 5px;
+        font-size: 13px; font-weight: 700; cursor: pointer; touch-action: none; animation: cl-up 0.22s ease-out; }
+      .cl-dock b { color: #d63f8c; }
+      @keyframes cl-up { from { transform: translateX(-50%) translateY(30px); opacity: 0; } to { transform: translateX(-50%); opacity: 1; } }
+      .club-live.tucked .cl-floor { bottom: calc(76px + env(safe-area-inset-bottom)); }
+      .club-live.tucked .cl-board { bottom: calc(76px + env(safe-area-inset-bottom)); }
       .cl-sheet-head { display: flex; align-items: center; gap: 10px; }
       .cl-sheet-head div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
       .cl-sheet-head strong { font-size: 14px; }

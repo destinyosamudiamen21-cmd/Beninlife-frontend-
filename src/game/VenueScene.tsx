@@ -109,7 +109,7 @@ function Regular({ person, delay, hidden }: { person: Person; delay: number; hid
     speed.current = stepSpeed(pose.move);
   });
   return (
-    <group ref={body} position={[person.x, 0, person.z]} rotation-y={person.rot} visible={!hidden}>
+    <group ref={body} position={[person.x, person.y ?? 0, person.z]} rotation-y={person.rot} visible={!hidden}>
       <Character speedRef={speed} look={person.look} fight={pose} />
     </group>
   );

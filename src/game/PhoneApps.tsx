@@ -173,7 +173,7 @@ export function SchoolApp({ playerId, onBack }: SchoolProps) {
               {school.friends.map((friend) => `${friend.name}: ${friend.partner ? "your person" : friend.level.toLowerCase()}`).join(" · ")}
             </p>
           )}
-          <p className="ph-small">Classes are at 500 LT. The door opens half an hour before and is locked fifteen minutes after the start.</p>
+          <p className="ph-small">Classes are inside 500 LT, at 8:00 am and 1:00 pm. The door opens an hour before and is locked half an hour after the start. Early? Sit on a bench and wait for the lecturer.</p>
         </>
       )}
     </Screen>

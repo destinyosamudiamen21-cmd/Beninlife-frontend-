@@ -215,44 +215,45 @@ export function bodyShift(move: FightMove | null, t: number, animated: boolean, 
       if (!animated) out.lift = 0.14 * Math.abs(Math.sin(t * 6));
       break;
     // The dances. Two beats a second, as near as makes no difference to the music. With an
-    // animation file the file is the dance, and the body is left alone.
+    // animation file the file is the dance, and the body is left alone. Without one (the file
+    // still on its way) the body only sways: tipped any further it looks like a plank falling over.
     case "legwork":
       if (animated) break;
       // Quick feet and a low, forward lean, rocking from one foot to the other.
       out.lift = 0.05 * Math.abs(Math.sin(4 * Math.PI * t));
-      out.side = 0.12 * Math.sin(2 * Math.PI * t);
-      out.lean = 0.14;
-      out.roll = 0.07 * Math.sin(4 * Math.PI * t);
+      out.side = 0.06 * Math.sin(2 * Math.PI * t);
+      out.lean = 0.06;
+      out.roll = 0.03 * Math.sin(4 * Math.PI * t);
       break;
     case "shaku":
       if (animated) break;
       // A half-step side to side, shoulders dipping with it.
-      out.side = 0.18 * Math.sin(2 * Math.PI * t);
+      out.side = 0.08 * Math.sin(2 * Math.PI * t);
       out.lift = 0.04 * Math.abs(Math.sin(4 * Math.PI * t));
-      out.lean = 0.2 + 0.05 * Math.sin(4 * Math.PI * t);
-      out.roll = 0.1 * Math.sin(2 * Math.PI * t);
+      out.lean = 0.07 + 0.03 * Math.sin(4 * Math.PI * t);
+      out.roll = 0.04 * Math.sin(2 * Math.PI * t);
       break;
     case "whine":
       if (animated) break;
       // Knees bent, the waist going round in a slow circle.
       out.lift = -0.12 + 0.03 * Math.sin(4 * Math.PI * t);
-      out.side = 0.1 * Math.sin(1.6 * Math.PI * t);
-      out.forward = 0.08 * Math.cos(1.6 * Math.PI * t);
-      out.roll = 0.14 * Math.sin(1.6 * Math.PI * t);
-      out.lean = 0.1;
+      out.side = 0.06 * Math.sin(1.6 * Math.PI * t);
+      out.forward = 0.04 * Math.cos(1.6 * Math.PI * t);
+      out.roll = 0.05 * Math.sin(1.6 * Math.PI * t);
+      out.lean = 0.04;
       break;
     case "bounce":
       if (animated) break;
-      out.lift = 0.12 * Math.abs(Math.sin(3 * Math.PI * t));
-      out.roll = 0.08 * Math.sin(1.5 * Math.PI * t);
+      out.lift = 0.1 * Math.abs(Math.sin(3 * Math.PI * t));
+      out.roll = 0.03 * Math.sin(1.5 * Math.PI * t);
       break;
     case "groove":
       if (animated) break;
       // The owambe two-step: an easy sway from foot to foot, shoulders following.
-      out.side = 0.16 * Math.sin(Math.PI * t);
+      out.side = 0.08 * Math.sin(Math.PI * t);
       out.lift = 0.03 * Math.abs(Math.sin(2 * Math.PI * t));
-      out.roll = 0.09 * Math.sin(Math.PI * t);
-      out.lean = 0.05;
+      out.roll = 0.035 * Math.sin(Math.PI * t);
+      out.lean = 0.03;
       break;
     case "sit":
       // Down into the seat and leaning back. The seat hides how the legs fold. A file

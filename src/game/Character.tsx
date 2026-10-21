@@ -184,11 +184,18 @@ function loadOptional(url: string): Promise<Group | null> {
   return pending;
 }
 
-/** How high the hips bone stands in a file's own skeleton, or 0 if it has none. */
+/**
+ * How high the hips stand in a file's own skeleton, or 0 if it has none.
+ *
+ * An animation file has no body, so its skeleton comes in as plain objects rather than
+ * bones: the hips are found by name, whatever they are. (Looking only for bones missed
+ * them, so a dance made on the man was never fitted to the woman: she danced, sat and
+ * slept a metre up in the air.)
+ */
 function hipsHeight(root: Object3D, prefix: string): number {
   let height = 0;
   root.traverse((child) => {
-    if (height === 0 && (child as Bone).isBone && child.name.replace(MIXAMO_PREFIX, prefix) === `${prefix}Hips`) {
+    if (height === 0 && child.name.replace(MIXAMO_PREFIX, prefix) === `${prefix}Hips`) {
       height = child.position.y;
     }
   });

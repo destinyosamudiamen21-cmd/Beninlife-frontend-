@@ -24,7 +24,7 @@ import type { Near, Stand } from "./nearby";
 export type Box = { x: number; z: number; hx: number; hz: number; y0: number; y1: number; c: string; solid?: boolean; glow?: boolean; glass?: boolean };
 
 /** Something in the room that is used through the server: the bar, a doctor, a tee. */
-export type Thing = { spot: string; name: string; verb?: string; x: number; z: number; hx: number; hz: number; reach?: number; stand?: Stand | "here"; distance?: number };
+export type Thing = { spot: string; name: string; verb?: string; x: number; z: number; hx: number; hz: number; reach?: number; stand?: Stand | Stand[] | "here"; distance?: number };
 
 /** Something in the room that opens a panel of its own. */
 export type Special =
@@ -38,7 +38,7 @@ export type Special =
 export type ShowCar = { model: string; colour: string; x: number; z: number; rot: number; turntable?: boolean };
 
 /** Someone who is always there. */
-export type Person = { x: number; z: number; rot: number; look: Look; move?: DanceMove | "sit"; label?: string; ghost?: boolean };
+export type Person = { x: number; z: number; rot: number; look: Look; move?: DanceMove | "sit"; label?: string; ghost?: boolean; /** Standing on a step or a stage. */ y?: number };
 
 /** In the haunted house: walk into the circle and something happens. Each one happens once a visit. */
 export type Scare = { id: string; x: number; z: number; r: number; kind: "ghost" | "face" | "lights" | "slam" | "hands"; ghost?: { x: number; z: number; rot: number }; line?: string };
@@ -1356,6 +1356,92 @@ function ivoryPalm(): VenueLayout {
   });
 }
 
+// ---- 500 LT -------------------------------------------------------------------------------------
+// A UNIBEN lecture theatre: rows of black metal desks with orange fold-down seats, rising in
+// steps away from the board; the lecturer on a low stage; tall louvre windows down both
+// sides letting the daylight in; ceiling fans; cream walls. Classes are sat through here.
+
+/** The rows of benches: how far from the board each row is, and how high its step stands. */
+export const LT_ROWS = [0, 1, 2, 3, 4, 5].map((row) => ({ z: 6.2 + row * 2.2, y: 0.25 * (row + 1) }));
+const LT_SEAT_XS = [5.2, 6.6, 8.0, 9.4, 10.8, 12.2, 13.8, 15.2, 16.6, 18.0, 19.4, 20.8];
+
+function lectureTheatre(): VenueLayout {
+  const width = 26, depth = 24;
+  const step = "#a9a59b", desk = "#2e3034", seat = "#c06b2c", frame = "#1f2124", louvre = "#eaf5f7";
+  const boxes: Box[] = [
+    // The stage, the board, the screen over it and the lecturer's table.
+    solid(13, 2.0, 7.5, 1.6, 0.3, "#7a5a3c"),
+    deco(13, 0.1, 6.9, 0.07, 1.15, 3.85, "#c9b48a"),
+    deco(13, 0.16, 6.6, 0.05, 1.3, 3.7, "#1f3a2c"),
+    ...[1.9, 2.3, 2.7, 3.1].map((y, i) => deco(9.5 + i * 0.6, 0.2, 2.6 - i * 0.3, 0.01, y, y + 0.05, "#dfe6dc")),
+    deco(13, 0.12, 4.0, 0.03, 4.2, 6.3, "#f2f2ee"),
+    solid(17.5, 2.4, 1.1, 0.5, 1.1, "#5a3e2a", 0.3),
+    deco(17.5, 2.05, 0.25, 0.18, 1.1, 1.35, "#20242a"),
+    // The steps, one for each row, and on each a long black desk and a row of orange seats.
+    ...LT_ROWS.flatMap(({ z, y }) => [
+      solid(13, z, 9.0, 1.1, y, step),
+      deco(13, z - 1.08, 9.0, 0.03, y - 0.25, y, "#8f8b82"),
+      deco(13, z - 0.45, 8.9, 0.05, y, y + 0.72, frame),
+      deco(13, z - 0.3, 8.9, 0.28, y + 0.72, y + 0.77, desk),
+      ...LT_SEAT_XS.flatMap((x) => [
+        deco(x, z + 0.35, 0.5, 0.24, y + 0.42, y + 0.48, seat),
+        deco(x, z + 0.62, 0.5, 0.05, y + 0.48, y + 1.0, seat),
+      ]),
+      deco(13, z + 0.62, 8.9, 0.04, y, y + 0.42, frame),
+    ]),
+    // The handrail up the left steps, in red, as in the real one.
+    ...LT_ROWS.map(({ z, y }) => deco(3.95, z, 0.03, 1.1, y + 0.9, y + 0.95, "#b3261e")),
+    // Louvre windows down both sides: rows of glass blades with the daylight behind them.
+    ...[5, 10, 15, 20].flatMap((z) =>
+      [0.08, width - 0.08].flatMap((x) => [
+        deco(x, z, 0.06, 1.8, 1.6, 5.8, "#d9dcd8"),
+        ...Array.from({ length: 16 }, (_, k) => glow(x, z, 0.08, 1.65, 1.75 + k * 0.25, 1.86 + k * 0.25, louvre)),
+      ]),
+    ),
+    // Ceiling fans, and a line of tube lights.
+    ...[[7, 7.5], [19, 7.5], [7, 15], [19, 15]].flatMap(([x, z]) => [
+      deco(x, z, 0.03, 0.03, 6.1, 7, "#d9d6cf"),
+      deco(x, z, 0.95, 0.09, 6.06, 6.1, "#efece4"),
+      deco(x, z, 0.09, 0.95, 6.06, 6.1, "#efece4"),
+      deco(x, z, 0.16, 0.16, 6.0, 6.12, "#d9d6cf"),
+    ]),
+    ...[5, 11, 17].map((z) => glow(13, z, 7, 0.05, 6.9, 6.95, "#ffffff")),
+    // A notice board by the door.
+    deco(22.5, depth - 0.1, 1.6, 0.05, 1.2, 2.4, "#8a6a44"),
+    ...[[-0.8, 2.0], [0.1, 1.8], [0.9, 2.05], [-0.4, 1.5], [0.6, 1.45]].map(([dx, y], i) => deco(22.5 + dx, depth - 0.16, 0.3, 0.02, y - 0.2, y + 0.2, ["#f6f1d8", "#ffffff", "#ffe08a", "#d8ecff", "#ffffff"][i])),
+  ];
+  // Every seat a player can sit in, facing the board.
+  const seats: Stand[] = LT_ROWS.flatMap(({ z, y }) => LT_SEAT_XS.map((x) => ({ x, z: z + 0.3, y, rot: Math.PI })));
+  const students = [
+    [0, 1, "woman"], [0, 4, "man"], [0, 9, "woman"], [1, 2, "man"], [1, 6, "woman"], [1, 10, "man"],
+    [2, 0, "man"], [2, 5, "woman"], [2, 8, "man"], [3, 3, "woman"], [3, 7, "man"], [3, 11, "woman"],
+    [4, 1, "man"], [4, 6, "woman"], [5, 4, "man"], [5, 9, "woman"],
+  ] as const;
+  const tops = ["#efeee8", "#2f6fd6", "#d63f8c", "#1f2f55", "#e88a2b", "#2a9d8f", "#6a4fe0", "#c0392b"];
+  return room({
+    id: "lt", name: "500 LT", kind: "office", width, depth, wallHeight: 7,
+    floor: "#9f9b92", floorAlt: "#a8a49a", wall: "#efe8d6", trim: "#8a5a3a", sky: "#cfe6f2", lighting: "bright",
+    boxes,
+    things: [
+      { spot: "lecture", name: "Class", verb: "Sit down for the", x: 13, z: 11.7, hx: 9.0, hz: 6.6, reach: 1.8, stand: seats },
+    ],
+    people: [
+      { x: 11.5, z: 2.6, y: 0.3, rot: 0, look: person("man", 2, "#efeee8", "#2b2b30", "#1d1d1f"), label: "Lecturer" },
+      ...students.map(([row, seatIndex, body], i): Person => ({
+        x: LT_SEAT_XS[seatIndex], z: LT_ROWS[row].z + 0.3, y: LT_ROWS[row].y, rot: Math.PI, move: "sit",
+        look: person(body, i, tops[i % tops.length], i % 3 ? "#1d1d1f" : "#2b3a55", "#1d1d1f"),
+      })),
+      { x: 2.2, z: 19.5, rot: 0.6, look: person("woman", 3, "#2a9d8f", "#efeee8") },
+      { x: 24, z: 21, rot: -2.4, look: person("man", 5, "#e88a2b", "#1d1d1f") },
+    ],
+    signs: [
+      { text: "500 LT · Faculty of Engineering", x: 13, y: 6.55, z: 0.2, size: 0.42, colour: "#5b3424" },
+      { text: "Switch off your phones. No food in the hall.", x: 13, y: 0.95, z: 0.25, size: 0.2, colour: "#5b3424" },
+      { text: "Notices", x: 22.5, y: 2.6, z: depth - 0.2, size: 0.22, colour: "#5b3424", face: "front" },
+    ],
+  });
+}
+
 export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
   [
     museum(), police(), supermarket("hallmark", "Supermarket", "hallmark", 24, 18, "#c8432b"),
@@ -1365,7 +1451,7 @@ export const VENUES: Record<string, VenueLayout> = Object.fromEntries(
     aquarium(),
     club("patricia", "Rooftop Club", 26, 20), club("patio", "Afrobeats Club", 26, 20), club("space", "Neon Club", 26, 20),
     club("darkalley", "Underground Club", 24, 18),
-    haunted(), golf(), flyover(), zoo(), dealer(), mimeals(), ivoryPalm(), bankHall(), techHub(),
+    haunted(), golf(), flyover(), zoo(), dealer(), mimeals(), ivoryPalm(), bankHall(), techHub(), lectureTheatre(),
   ].map((layout) => [layout.id, layout]),
 );
 
@@ -1406,6 +1492,12 @@ export function venueCollider(layout: VenueLayout): Collider {
   });
 }
 
+function nearestSeat(seats: Stand[], x: number, z: number): Stand {
+  let best = seats[0];
+  for (const seat of seats) if (Math.hypot(seat.x - x, seat.z - z) < Math.hypot(best.x - x, best.z - z)) best = seat;
+  return best;
+}
+
 /** The things in a room that are used through the server, in the shape the rest of the game uses. */
 export function venueThings(layout: VenueLayout): Near[] {
   return layout.things.map((thing) => {
@@ -1420,7 +1512,12 @@ export function venueThings(layout: VenueLayout): Near[] {
       halfX: thing.hx,
       halfZ: thing.hz,
       reach: thing.reach ?? 1.2,
-      standAt: stand === undefined ? undefined : stand === "here" ? (x: number, z: number) => ({ x, z }) : () => stand,
+      standAt:
+        stand === undefined ? undefined
+        : stand === "here" ? (x: number, z: number) => ({ x, z })
+        // A row of seats: the one nearest to where they stood.
+        : Array.isArray(stand) ? (x: number, z: number) => nearestSeat(stand, x, z)
+        : () => stand,
       distance: thing.distance,
     };
   });
