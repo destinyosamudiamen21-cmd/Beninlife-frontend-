@@ -4,7 +4,7 @@
 
 import type { FurnitureOption, HomePlan, PlacedItem, Room, Spot } from "../api/home";
 import { footprint, itemRect, type Rect } from "./homeLayout";
-import { DOOR, doorways, insideOneRoom, serverNow } from "./homeRooms";
+import { doorways, insideOneRoom, serverNow } from "./homeRooms";
 
 /** Things that hang on a wall: their back must be against one. Must match the server. */
 export const ON_WALL = new Set(["painting", "clock", "ac", "art_large", "art_trio", "mirror", "curtains", "wall_light"]);
@@ -20,7 +20,7 @@ export function reservedCells(plan: HomePlan, floor: number, rooms: Room[] = [],
   const reserved = new Set<string>();
   const add = (x: number, z: number) => reserved.add(`${x},${z}`);
   for (const door of doorways(rooms, floor, now)) {
-    for (let step = 0; step < DOOR; step++) {
+    for (let step = 0; step < door.width; step++) {
       if (door.axis === "x") {
         add(door.line - 1, door.first + step);
         add(door.line, door.first + step);

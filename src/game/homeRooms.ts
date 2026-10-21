@@ -5,7 +5,12 @@
 
 import type { FloorFinish, Home, HomePlan, Paint, Room, RoomShape } from "../api/home";
 
-export const DOOR = 2;          // cells: a doorway between two rooms is 1 m wide
+export const DOOR = 2;          // cells: the narrowest doorway between two rooms, 1 m
+export const WIDE_DOOR = 3;     // cells: the doorway where the shared wall has room for it, 1.5 m
+/** How wide the doorway in a shared wall this many cells long is. Must match home_service.door_width. */
+export function doorWidth(span: number): number {
+  return span >= WIDE_DOOR + 2 ? WIDE_DOOR : DOOR;
+}
 export const ROOM_MIN = 4;      // cells on a side: 2 m ...
 export const ROOM_MAX = 24;     // ... to 12 m
 export const MAX_ROOMS = 16;
@@ -58,7 +63,7 @@ export function sharedEdge(a: Rect, b: Rect): { axis: "x" | "z"; line: number; f
   return null;
 }
 
-export type Doorway = { axis: "x" | "z"; line: number; first: number };
+export type Doorway = { axis: "x" | "z"; line: number; first: number; width: number };
 
 /** The openings between finished rooms on a floor. Must match home_service.doorways. */
 export function doorways(rooms: Room[], floor: number, now: number = serverNow()): Doorway[] {
@@ -68,7 +73,8 @@ export function doorways(rooms: Room[], floor: number, now: number = serverNow()
     for (let j = i + 1; j < done.length; j++) {
       const edge = sharedEdge(done[i], done[j]);
       if (!edge || edge.to - edge.from < DOOR) continue;
-      found.push({ axis: edge.axis, line: edge.line, first: edge.from + Math.floor((edge.to - edge.from - DOOR) / 2) });
+      const width = doorWidth(edge.to - edge.from);
+      found.push({ axis: edge.axis, line: edge.line, first: edge.from + Math.floor((edge.to - edge.from - width) / 2), width });
     }
   }
   return found;
@@ -123,7 +129,7 @@ export function wallRuns(rooms: Room[], floor: number, now: number = serverNow()
   const here = rooms.filter((room) => room.floor === floor);
   const doors = doorways(rooms, floor, now);
   const isDoorway = (axis: "x" | "z", line: number, cell: number) =>
-    doors.some((door) => door.axis === axis && door.line === line && cell >= door.first && cell < door.first + DOOR);
+    doors.some((door) => door.axis === axis && door.line === line && cell >= door.first && cell < door.first + door.width);
   const runs: WallRun[] = [];
 
   for (const room of here) {

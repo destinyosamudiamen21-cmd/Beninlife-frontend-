@@ -2,13 +2,20 @@
 // a player bumps into indoors. No 3D imports here, so all of it can be tested alone.
 
 import type { Fixture, FurnitureOption, HomePlan, PlacedItem, Room } from "../api/home";
-import { EDGE_MARGIN, PLAYER_RADIUS, buildCollider, type Collider } from "./collision";
+import { EDGE_MARGIN, PLAYER_RADIUS, buildCollider, type Collider, type Point } from "./collision";
 import type { Building } from "./districtData";
 import { isDone, serverNow, wallRuns } from "./homeRooms";
 
 export const WALL_HEIGHT = 2.8;
 /** Half the thickness of a wall, in metres. A wall between two rooms is two halves, one painted for each. */
 export const HALF_WALL = 0.075;
+/**
+ * How wide a player is indoors, as a circle on the floor. Slimmer than out on the street
+ * (PLAYER_RADIUS): a house is full of doorways and furniture, and a phone thumb is not precise.
+ */
+export const HOME_RADIUS = 0.22;
+/** How near the stairs a player must be for the "Go upstairs" button. */
+export const STAIRS_REACH = 1.8;
 
 export type FloorChange = { floor: number; x: number; z: number };
 export type Rect = { cx: number; cz: number; halfX: number; halfZ: number };
@@ -68,15 +75,38 @@ export function stairTrigger(plan: HomePlan, floor: number, x: number, z: number
   const strip = stairsRect(plan);
   if (!strip || plan.floors.length < 2) return null;
   if (x < strip.minX || x > strip.maxX) return null;
-  const middle = (strip.minX + strip.maxX) / 2;
 
-  if (floor === 0 && z >= strip.maxZ - plan.cell && z <= strip.maxZ) {
-    return { floor: 1, x: middle, z: strip.minZ - plan.cell };
+  if (floor === 0 && z >= strip.maxZ - plan.cell && z <= strip.maxZ + 0.1) {
+    return stairsGo(plan, floor);
   }
-  if (floor === 1 && z >= strip.minZ && z <= strip.minZ + plan.cell) {
-    return { floor: 0, x: middle, z: strip.maxZ + plan.cell };
+  if (floor === 1 && z >= strip.minZ - 0.1 && z <= strip.minZ + plan.cell) {
+    return stairsGo(plan, floor);
   }
   return null;
+}
+
+/** Where taking the stairs from this floor puts a player: on the landing at the other end. */
+export function stairsGo(plan: HomePlan, floor: number): FloorChange | null {
+  const strip = stairsRect(plan);
+  if (!strip || plan.floors.length < 2) return null;
+  const middle = (strip.minX + strip.maxX) / 2;
+  return floor === 0
+    ? { floor: 1, x: middle, z: strip.minZ - plan.cell }
+    : { floor: 0, x: middle, z: strip.maxZ + plan.cell };
+}
+
+/**
+ * Is the player near enough to the foot (or, upstairs, the head) of the stairs to take them
+ * with a button? Returns where they would come out, or null. Walking onto the step does it
+ * too (stairTrigger); the button is for a crowded room and a clumsy thumb.
+ */
+export function stairsNear(plan: HomePlan, floor: number, x: number, z: number): FloorChange | null {
+  const strip = stairsRect(plan);
+  if (!strip || plan.floors.length < 2) return null;
+  const middle = (strip.minX + strip.maxX) / 2;
+  const stepZ = floor === 0 ? strip.maxZ - plan.cell / 2 : strip.minZ + plan.cell / 2;
+  const gapX = Math.max(0, Math.abs(x - middle) - (strip.maxX - strip.minX) / 2);
+  return Math.hypot(gapX, z - stepZ) <= STAIRS_REACH ? stairsGo(plan, floor) : null;
 }
 
 /** The part of the stair strip that is solid on a floor: everything but the row you step onto. */
@@ -156,7 +186,7 @@ export function homeCollider(
   const bounds = rooms.length > 0 && lot
     ? { minX: lot.min_x * plan.cell - reach, maxX: lot.max_x * plan.cell + reach, minZ: lot.min_z * plan.cell - reach, maxZ: lot.max_z * plan.cell + reach }
     : { minX: -reach, maxX: width + reach, minZ: -reach, maxZ: depth + reach };
-  return buildCollider({
+  const inner = buildCollider({
     id: plan.kind,
     name: plan.name,
     attribution: "",
@@ -171,4 +201,28 @@ export function homeCollider(
     trees: [],
     labels: [],
   });
+  // Indoors a player is slimmer than on the street, so doorways and the gaps between the
+  // furniture can be walked through without threading a needle.
+  // A slim body could step clean through a thin wall in one long stride (a slow frame on a
+  // phone), so a long step is taken as several short ones.
+  const step: Point = { x: 0, z: 0 };
+  return {
+    ...inner,
+    resolve: (fromX, fromZ, toX, toZ, out, radius = HOME_RADIUS) => {
+      const r = Math.min(radius, HOME_RADIUS);
+      const parts = Math.max(1, Math.ceil(Math.hypot(toX - fromX, toZ - fromZ) / (r * 0.4)));
+      // Each short step goes on from wherever the last one ended, so a wall that stopped one
+      // stops the rest: aiming every step at the far end would carry the body into the wall.
+      const dx = (toX - fromX) / parts, dz = (toZ - fromZ) / parts;
+      let x = fromX, z = fromZ, blocked = false;
+      for (let i = 1; i <= parts; i++) {
+        if (inner.resolve(x, z, x + dx, z + dz, step, r)) blocked = true;
+        x = step.x;
+        z = step.z;
+      }
+      out.x = x;
+      out.z = z;
+      return blocked;
+    },
+  };
 }

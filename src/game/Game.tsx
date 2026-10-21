@@ -83,7 +83,7 @@ import { loadDistrict, type DistrictData, type Door } from "./districtData";
 import { cameraView, playerFocus } from "./focus";
 import { buildWalkways, walkwayHeight, withFootbridges } from "./footbridge";
 import { doorSpot, homeCollider, type FloorChange } from "./homeLayout";
-import { CAMERA_FOV, cameraInput, creatorInput, faceNorth, switchView, type View, readMove } from "./input";
+import { CAMERA_FOV, HOUSE_ZOOM, cameraInput, creatorInput, faceNorth, setZoom, stepZoom, switchView, type View, readMove } from "./input";
 import { holdAt, type Near } from "./nearby";
 import { createCrowd, holder, sendAway, setHour, shakeOff, type Seller } from "./npcs";
 import { HauntSound } from "./hauntSound";
@@ -349,6 +349,9 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
   const [story, setStory] = useState<StoryState | null>(null);
   const [home, setHome] = useState<Home | null>(null);
   const [scene, setScene] = useState<Scene>({ kind: "street" });
+  // What is on screen now, for code that finishes later (a ride that ends after they went indoors).
+  const sceneNow = useRef(scene);
+  sceneNow.current = scene;
   const [spawn, setSpawn] = useState<Spawn>({ x: player.pos_x, z: player.pos_z, key: 0 });
   const [busy, setBusy] = useState(false);
   const streetSpot = useRef({ x: player.pos_x, z: player.pos_z }); // where to come back out to
@@ -1651,6 +1654,18 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
     setScene({ kind: "home", floor: change.floor });
     appearAt(change.x, change.z);
   };
+  // Near the stairs at home: a button takes them, for a crowded room and a clumsy thumb.
+  const [stairsHere, setStairsHere] = useState<FloorChange | null>(null);
+  // The + and − buttons: pinching is hard when one thumb walks and the other looks round.
+  const zoomOut = () => {
+    if (view === "first") setView(switchView()); // through their eyes there is nothing to pull back: step out behind them
+    else stepZoom(1.35);
+  };
+  const zoomIn = () => stepZoom(1 / 1.35);
+  const wholeHouse = () => {
+    if (view === "first") setView(switchView());
+    setZoom(cameraInput.zoom >= HOUSE_ZOOM * 0.9 ? 1 : HOUSE_ZOOM);
+  };
 
   // ---- the city map, and getting about ---------------------------------------------------------
   const loadCity = useCallback(() => {
@@ -1715,7 +1730,9 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       setNearDoor(null);
       if (loaded) setDistrict(loaded);
       streetSpot.current = { x: spot.x, z: spot.z };
-      appearAt(spot.x, spot.z);
+      // Gone indoors since the ride began (home, a shop): they come out here later. Moving
+      // their body now would pull them out of the room they are standing in.
+      if (sceneNow.current.kind === "street") appearAt(spot.x, spot.z);
       if (rideNews.current.length > 0) flash(rideNews.current.join(" "));
       void loadLife(); // the ride took time off their day
     } catch (error) {
@@ -2171,6 +2188,11 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
         .view-switch { width: 44px; height: 44px; border-radius: 50%; border: 2px solid #e2b657; background: #1c1512; color: #f6efe0;
           font: 800 12px/1 system-ui, sans-serif; cursor: pointer; padding: 0; pointer-events: auto; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); }
         .view-switch:active { transform: scale(0.94); }
+        .zoom-pad { display: flex; flex-direction: column; gap: 6px; pointer-events: auto; }
+        .zoom-pad button { width: 44px; height: 40px; border-radius: 12px; border: 2px solid #e2b657; background: rgba(28, 21, 18, 0.88); color: #f6efe0;
+          font: 800 22px/1 system-ui, sans-serif; cursor: pointer; padding: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); touch-action: manipulation; }
+        .zoom-pad button:last-child:not(:nth-child(2)) { font-size: 18px; }
+        .zoom-pad button:active { transform: scale(0.94); }
         .hud-sound { border: 0; background: rgba(255,255,255,0.14); color: inherit; border-radius: 6px; width: 24px; height: 22px; margin-right: 6px; font-size: 13px; cursor: pointer; padding: 0; vertical-align: middle; }
         .hud-sound[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
         .hud-beta { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; background: #f5c400; color: #1a0b24; border-radius: 4px; padding: 1px 4px; vertical-align: middle; }
@@ -2229,6 +2251,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
             home={home}
             floor={scene.floor}
             onStairs={takeStairs}
+            onStairsNear={setStairsHere}
             usable={homeLife.usable}
             onNear={homeLife.setNear}
             build={decorating ? buildView : null}
@@ -2455,6 +2478,15 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
                   {view === "first" ? "3rd" : "1st"}
                 </button>
               )}
+              {(scene.kind === "street" || scene.kind === "home" || scene.kind === "venue" || scene.kind === "club") && !driving && (
+                <div className="zoom-pad">
+                  <button type="button" aria-label="Zoom in" onClick={zoomIn}>+</button>
+                  <button type="button" aria-label="Zoom out" onClick={zoomOut}>−</button>
+                  {scene.kind === "home" && (
+                    <button type="button" aria-label="See the whole house" title="See the whole house" onClick={wholeHouse}>🏠</button>
+                  )}
+                </div>
+              )}
               {/* Outside it shows north; indoors, a tap puts the view back to the front of the room. */}
               {(!indoors || scene.kind === "venue" || scene.kind === "club") && <Compass read={() => cameraView.yaw} onReset={faceNorth} />}
             </div>
@@ -2588,6 +2620,13 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
           <button type="button" onClick={() => void toggleDoors()}>Unlock</button>
         </div>
       )}
+      {scene.kind === "home" && stairsHere && !decorating && !panelOpen && !tiedUp && !homeLife.menu && !homeLife.life?.doing && (
+        <div className="crowd-actions" style={{ bottom: homeLife.near ? "calc(130px + env(safe-area-inset-bottom))" : undefined }}>
+          <button type="button" className="give-in" onClick={() => takeStairs(stairsHere)}>
+            {stairsHere.floor > 0 ? "⬆ Go upstairs" : "⬇ Go downstairs"}
+          </button>
+        </div>
+      )}
       {nearDesk && !race && !panelOpen && !tiedUp && (
         <div className="crowd-actions" style={{ bottom: driving ? "calc(200px + env(safe-area-inset-bottom))" : undefined }}>
           <button type="button" className="give-in" onClick={() => setDeskOpen(true)}>
@@ -2693,7 +2732,7 @@ export function Game({ player, onSignOut, admin = false }: { player: Player; onS
       {!shared && !customising && !tiedUp && (
         <div className="hint">
           <span className="hint-keys">WASD to walk · Shift to sprint · Scroll to zoom</span>
-          <span className="hint-touch">Drag to move · Pinch to zoom</span>
+          <span className="hint-touch">Left thumb walks · right thumb looks · + − zoom</span>
         </div>
       )}
 

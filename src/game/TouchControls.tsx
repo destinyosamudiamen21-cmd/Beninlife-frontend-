@@ -28,7 +28,8 @@ function localPoint(event: ReactPointerEvent<HTMLDivElement>): Point {
  * The invisible layer over the game that fingers and the mouse act on.
  *
  * - One finger (or the left button) drags a stick: the player walks that way.
- * - Two fingers pinch to zoom and twist to swing the camera round the player.
+ * - Two fingers pinch to zoom and twist to swing the camera round the player, on either
+ *   side of the screen (both on the left, or both on the right where one finger looks round).
  * - The right mouse button drags the camera round; the wheel zooms.
  */
 export function TouchControls({ mode, turn = true }: Props) {
@@ -36,7 +37,7 @@ export function TouchControls({ mode, turn = true }: Props) {
   const pointers = useRef(new Map<number, Point>());
   const moveId = useRef<number | null>(null);
   const lookId = useRef<number | null>(null);   // the mouse, while its right button drags the camera
-  const thumbs = useRef(new Map<number, number>()); // fingers looking round: where each one was across the screen
+  const thumbs = useRef(new Map<number, Point>()); // fingers looking round, and where each one was
   const origin = useRef<Point>({ x: 0, y: 0 });
   const pinch = useRef<{ gap: number; zoom: number; bearing: number } | null>(null);
   const twist = useMemo(() => twistFilter(TWIST_START), []);
@@ -97,8 +98,14 @@ export function TouchControls({ mode, turn = true }: Props) {
     // Like most phone games: the left thumb walks, the right thumb drags to look round. Both at once.
     const width = event.currentTarget.getBoundingClientRect().width;
     if (mode === "play" && turn && point.x > width * LOOK_SIDE) {
-      thumbs.current.set(event.pointerId, point.x);
+      thumbs.current.set(event.pointerId, point);
       event.currentTarget.setPointerCapture(event.pointerId);
+      // A second finger on the looking side makes it a pinch, as anywhere else.
+      if (thumbs.current.size === 2) {
+        const [a, b] = [...thumbs.current.values()];
+        pinch.current = { gap: spread(a, b), zoom: cameraInput.zoom, bearing: bearing(a, b) };
+        twist.reset();
+      }
       return;
     }
     pointers.current.set(event.pointerId, point);
@@ -124,8 +131,17 @@ export function TouchControls({ mode, turn = true }: Props) {
     const point = localPoint(event);
     const thumb = thumbs.current.get(event.pointerId);
     if (thumb !== undefined) {
-      turnCamera(-(point.x - thumb) * THUMB_LOOK_PER_PIXEL);
-      thumbs.current.set(event.pointerId, point.x);
+      thumbs.current.set(event.pointerId, point);
+      if (pinch.current && thumbs.current.size >= 2) {
+        const [a, b] = [...thumbs.current.values()];
+        setZoom(pinch.current.zoom * (pinch.current.gap / spread(a, b)));
+        const now = bearing(a, b);
+        const swing = twist.feed(turned(pinch.current.bearing, now));
+        pinch.current.bearing = now;
+        if (swing !== 0) turnCamera(swing);
+        return;
+      }
+      turnCamera(-(point.x - thumb.x) * THUMB_LOOK_PER_PIXEL);
       return;
     }
     if (event.pointerId === lookId.current) {
@@ -173,7 +189,10 @@ export function TouchControls({ mode, turn = true }: Props) {
   };
 
   const onPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (thumbs.current.delete(event.pointerId)) return;
+    if (thumbs.current.delete(event.pointerId)) {
+      if (thumbs.current.size < 2 && pointers.current.size < 2) pinch.current = null;
+      return;
+    }
     if (event.pointerId === lookId.current) {
       lookId.current = null;
       return;

@@ -254,10 +254,11 @@ export function buildHouse(
   // Lintels over the doorways, when the walls are standing.
   if (!view.low) {
     for (const door of doorways(rooms, floor, now)) {
-      const along = (door.first + 1) * cell;
+      const along = (door.first + door.width / 2) * cell;
       const line = door.line * cell;
       const x = door.axis === "x" ? line : along, z = door.axis === "z" ? line : along;
-      const hx = door.axis === "x" ? HALF_WALL : cell, hz = door.axis === "x" ? cell : HALF_WALL;
+      const half = (door.width * cell) / 2;
+      const hx = door.axis === "x" ? HALF_WALL : half, hz = door.axis === "x" ? half : HALF_WALL;
       // A doorway in a wall the camera looks through has no lintel: it would float over a cut wall.
       if (Math.abs(door.axis === "x" ? view.dirX : view.dirZ) > 0.35) continue;
       builder.box(x, z, hx, hz, LINTEL, WALL_HEIGHT, OUTSIDE_WALL);

@@ -48,6 +48,14 @@ export function setZoom(value: number): void {
   cameraInput.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 }
 
+/** Zoom by a factor, for the + and − buttons: more than 1 pulls the camera back. */
+export function stepZoom(factor: number): void {
+  setZoom(cameraInput.zoom * factor);
+}
+
+/** How far back the camera sits to see a whole house at once, from above. */
+export const HOUSE_ZOOM = 3.4;
+
 /** Swing the camera round the player by this many radians. */
 export function turnCamera(by: number): void {
   if (Number.isFinite(by)) {

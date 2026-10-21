@@ -14,7 +14,7 @@ import { spotRect } from "./homeDecor";
 import { buildFurniture, buildHouse, buildPiece, cutAway, looksOf } from "./homeGeometry";
 import { CEILING_SEEN_BELOW, buildCeilings, buildFloors, buildGlow, roomLights } from "./homeLighting";
 import { disposeMaterials, homeEnvironment, homeLights, homeMaterials } from "./homeLook";
-import { fixtureRect, itemRect, stairTrigger, type FloorChange, type Rect } from "./homeLayout";
+import { fixtureRect, itemRect, stairTrigger, stairsNear, type FloorChange, type Rect } from "./homeLayout";
 import { homeThings } from "./homeLife";
 import { isDone, serverNow } from "./homeRooms";
 import { nearestOf, type Near } from "./nearby";
@@ -78,6 +78,8 @@ type Props = {
   floor: number;
   /** The player stepped onto the stairs. */
   onStairs: (change: FloorChange) => void;
+  /** The player came near the stairs (where the button would take them), or left them: null. */
+  onStairsNear?: (change: FloorChange | null) => void;
   /** The kinds of furniture that can be used. */
   usable: ReadonlySet<string>;
   /** Tells the game which thing the player is standing at. Called only when it changes. */
@@ -89,7 +91,7 @@ type Props = {
 };
 
 /** A player's house: one floor of it, with its furniture, whoever lives there too, and any room being built. */
-export function HomeScene({ home, floor, onStairs, usable, onNear, build = null, cars = [] }: Props) {
+export function HomeScene({ home, floor, onStairs, onStairsNear, usable, onNear, build = null, cars = [] }: Props) {
   const { plan, items, catalogue } = home;
   const building = build !== null;
   const cell = plan.cell;
@@ -178,16 +180,22 @@ export function HomeScene({ home, floor, onStairs, usable, onNear, build = null,
   const sites = rooms.filter((room) => room.floor === floor && !isDone(room));
   const still = useRef(0); // nobody here walks
 
-  // Watch for the player stepping onto the stairs. It fires once per visit to a floor.
+  // Watch for the player stepping onto the stairs. It fires once per visit to a floor, and
+  // only once they have stepped off the stairs after arriving: for a frame or two after a floor
+  // changes, where the player is can still be where they were, and that must not send them
+  // straight back.
   const climbed = useRef(false);
+  const armed = useRef(false);
   useEffect(() => {
     climbed.current = false;
+    armed.current = false;
   }, [floor]);
 
   // What is the player standing at? Kept as state so the floor under it can be marked,
   // but only set when the answer changes, not on every frame.
   const [near, setNear] = useState<Near | null>(null);
   const nearNow = useRef<Near | null>(null);
+  const stairsNow = useRef<number | null>(null);
 
   useFrame(({ camera }) => {
     if (ceilingRef.current) ceilingRef.current.visible = camera.position.y < CEILING_SEEN_BELOW;
@@ -200,8 +208,17 @@ export function HomeScene({ home, floor, onStairs, usable, onNear, build = null,
       setNear(at);
       onNear(at);
     }
+    const handy = building ? null : stairsNear(plan, floor, playerFocus.x, playerFocus.z);
+    if ((handy?.floor ?? null) !== stairsNow.current) {
+      stairsNow.current = handy?.floor ?? null;
+      onStairsNear?.(handy);
+    }
     if (climbed.current || building) return; // nobody carries a wardrobe up the stairs by accident
     const change = stairTrigger(plan, floor, playerFocus.x, playerFocus.z);
+    if (!armed.current) {
+      if (!change) armed.current = true;
+      return;
+    }
     if (change) {
       climbed.current = true;
       onStairs(change);
@@ -213,8 +230,10 @@ export function HomeScene({ home, floor, onStairs, usable, onNear, build = null,
     () => () => {
       nearNow.current = null;
       onNear(null);
+      stairsNow.current = null;
+      onStairsNear?.(null);
     },
-    [onNear],
+    [onNear, onStairsNear],
   );
 
   // A tap while building: the point on the floor (or on a piece of furniture) under it.
